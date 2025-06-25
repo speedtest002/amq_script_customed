@@ -9,3 +9,13 @@ Những thay đổi so với bản gốc:
 
 ## [Keep Dropdown Open](https://github.com/speedtest002/amq_script_customed/blob/main/amqKeepDropDOpen.js)
 Giữ DropDown không bị đóng, nên dùng chung với [Enter DropD](https://github.com/speedtest002/amq_script_customed/blob/main/amqEnterDropD.user.js)
+
+
+## [Answer Stats](https://github.com/speedtest002/amq_script_customed/blob/main/amqAnswerStats.user.js)
+Script được custom dựa trên [kempanator/amq-scripts](https://github.com/kempanator/amq-scripts/blob/main/amqAnswerStats.user.js)
+
+Những thay đổi so với bản gốc:
+- Tự động khớp với khung video
+- Làm mờ khung
+- Tô màu của Distribution trong Novice ranked
+ 
