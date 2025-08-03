@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Hide Chat
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Toggle hide non-team messages in AMQ
 // @author       peashooter and Github Copilot
 // @match        https://animemusicquiz.com/*
