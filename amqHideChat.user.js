@@ -98,184 +98,53 @@ const createToggleSwitch = () => {
 };
 
 const setup = () => {
-    GameChat.prototype.chatMessage = function ({
-        sender,
-        modMessage,
-        message,
-        emojis,
-        badges,
-        messageId,
-        atEveryone,
-        teamMessage,
-        nameColor,
-        nameGlow,
-    }) {
-        if (socialTab.isBlocked(sender) && !modMessage) {
-            return;
+    const originalChatMessage = GameChat.prototype.chatMessage;
+    
+    const originalOpenView = GameChat.prototype.openView;
+    GameChat.prototype.openView = function() {
+        originalOpenView.call(this);
+        
+        if (this._newMessageListner) {
+            this._newMessageListner.unbindListener();
+            this._newMessageListner = new Listener(
+                "Game Chat Message",
+                function (payload) {
+                    if (!payload.teamMessage && hideNonTeamMessages) {
+                        originalChatMessage.call(this, payload);
+                        const $lastMessage = $("#gcMessageContainer li:last-child");
+                        if ($lastMessage.length) {
+                            applyHideEffect($lastMessage);
+                        }
+                    } else {
+                        originalChatMessage.call(this, payload);
+                    }
+                }.bind(this)
+            );
+            this._newMessageListner.bindListener();
         }
-        let $chatMessage = $(format(this.playerMsgTemplate, escapeHtml(sender), passChatMessage(message, emojis), messageId));
-        popoutEmotesInMessage($chatMessage, "#gcChatContent");
-        let $badgeContainer = $chatMessage.find(".chatBadges");
-        badges.forEach((badge) => {
-            let $badge = $(this.playerMsgBadgeTemplate);
-            new PreloadImage($badge, cdnFormater.newBadgeSrc(badge.fileName), cdnFormater.newBadgeSrcSet(badge.fileName));
-            $badge.popover({
-                content: createBadgePopoverHtml(badge.fileName, badge.name),
-                html: true,
-                delay: 50,
-                placement: "auto top",
-                trigger: "hover",
-                container: "#gcChatContent",
-            });
-            $badgeContainer.append($badge);
-        });
-
-        if (teamMessage) {
-            $chatMessage.find(".gcTeamMessageIcon").removeClass("hide");
-        } else {
-            // If hiding non-team messages is enabled, apply hide effect
-            if (hideNonTeamMessages) {
-                applyHideEffect($chatMessage);
-            }
-            //
-        }
-        if (nameColor) {
-            $chatMessage.find(".gcUserName").addClass(nameColor);
-        }
-        if (nameGlow) {
-            $chatMessage.find(".gcUserName").addClass(nameGlow);
-        }
-
-        let $username = $chatMessage.find(".gcUserName");
-        let openProfileFunction = () => {
-            playerProfileController.loadProfileIfClosed(sender, $username, {}, () => {}, false, true);
-        };
-        if (selfName !== sender) {
-            $username.addClass("clickAble");
-            if (isJamMod && this.jamChatMode) {
-                //Do nothing, menu added after element is added to DOM
-            } else if (!isGameAdmin) {
-                $username.click(openProfileFunction);
-            } else {
-                let hoverFucntion = createHoverablePopoverHandlers($chatMessage, sender);
-                $username
-                    .popover({
-                        html: true,
-                        content: this._PLAYER_COMMANDS_TEMPLATE,
-                        placement: "auto top",
-                        trigger: "click",
-                        container: "#gcChatContent",
-                    })
-                    .on("mouseleave", hoverFucntion.onMouseLeave)
-                    .on("inserted.bs.popover", () => {
-                        let $entry = $("#gcChatContent .popover");
-                        $entry.find(".playerModCommandIcon").removeClass("hide");
-                        $entry.find(".playerCommandFlagIcon").click(() => {
-                            socket.sendCommand({
-                                type: "lobby",
-                                command: "mod message flag",
-                                data: {
-                                    messageId: messageId,
-                                },
-                            });
-                        });
-                        $entry.find(".playerCommandBanSpamIcon").click(() => {
-                            messageDisplayer.displayOption(
-                                "Issue Chat Ban/Warning to " + sender + "?",
-                                "Reason for ban/warning: Spam",
-                                "Ok",
-                                "Cancel",
-                                () => {
-                                    socket.sendCommand({
-                                        type: "lobby",
-                                        command: "instant mod flag",
-                                        data: {
-                                            type: this.MOD_INSTANT_FLAG_TYPES.SPAM,
-                                            targetName: sender,
-                                            messageId: messageId,
-                                        },
-                                    });
-                                }
-                            );
-                        });
-                        $entry.find(".playerCommandBanSpoilIcon").click(() => {
-                            messageDisplayer.displayOption(
-                                "Issue Chat Ban/Warning to " + sender + "?",
-                                "Reason for ban/warning: Spoiling/Hinting",
-                                "Ok",
-                                "Cancel",
-                                () => {
-                                    socket.sendCommand({
-                                        type: "lobby",
-                                        command: "instant mod flag",
-                                        data: {
-                                            type: this.MOD_INSTANT_FLAG_TYPES.SPOILING,
-                                            targetName: sender,
-                                            messageId: messageId,
-                                        },
-                                    });
-                                }
-                            );
-                        });
-                        $entry.find(".playerCommandBanNegativeIcon").click(() => {
-                            messageDisplayer.displayOption(
-                                "Issue Chat Ban/Warning to " + sender + "?",
-                                "Reason for ban/warning: Offensive Message",
-                                "Ok",
-                                "Cancel",
-                                () => {
-                                    socket.sendCommand({
-                                        type: "lobby",
-                                        command: "instant mod flag",
-                                        data: {
-                                            type: this.MOD_INSTANT_FLAG_TYPES.NEGATIVE,
-                                            targetName: sender,
-                                            messageId: messageId,
-                                        },
-                                    });
-                                }
-                            );
-                        });
-                        $entry.find(".playerCommandProfileIcon").click(openProfileFunction);
-                    })
-                    .click(hoverFucntion.onClick);
-            }
-        } else {
-            let recentChanged = false;
-            getShortCodesInMessage(message).forEach((shortCode) => {
-                recentChanged = true;
-                emojiSelector.insertRecentEmote(null, null, shortCode);
-            });
-            emojis.emotes.forEach((emoteId) => {
-                recentChanged = true;
-                emojiSelector.insertRecentEmote(emoteId);
-            });
-            emojis.customEmojis.forEach((emoji) => {
-                recentChanged = true;
-                emojiSelector.insertRecentEmote(null, emoji.id);
-            });
-
-            if (recentChanged) {
-                emojiSelector.buildRecent();
-            }
-        }
-
-        if (this.atSelfRegex.test(message) || atEveryone) {
-            $chatMessage.addClass("highlight");
-        }
-
-        if (this.MAX_CHAT_MESSAGES + 1 === this.currentMessageCount) {
-            this.removeTwoOldestMessages();
-            this.currentMessageCount--;
-        } else {
-            this.currentMessageCount++;
-        }
-
-        this.insertMsg($chatMessage);
-
-        if (isJamMod && this.jamChatMode) {
-            let usernnameIdentifier = "#" + $chatMessage.attr("id") + " .gcUserName";
-            setupJamModOptions(usernnameIdentifier, sender, openProfileFunction, messageId, -180);
+        
+        if (this._chatUpdateListener) {
+            this._chatUpdateListener.unbindListener();
+            this._chatUpdateListener = new Listener(
+                "game chat update",
+                function (payload) {
+                    payload.messages.forEach((message) => {
+                        if (!message.teamMessage && hideNonTeamMessages) {
+                            originalChatMessage.call(this, message);
+                            const $lastMessage = $("#gcMessageContainer li:last-child");
+                            if ($lastMessage.length) {
+                                applyHideEffect($lastMessage);
+                            }
+                        } else {
+                            originalChatMessage.call(this, message);
+                        }
+                    });
+                    if (payload.bubles.length && !options.disableEmojis) {
+                        this.emoteBubler.newBubbleEventList(payload.bubles);
+                    }
+                }.bind(this)
+            );
+            this._chatUpdateListener.bindListener();
         }
     };
     
