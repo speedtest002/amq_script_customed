@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Hide Chat
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Toggle hide non-team messages in AMQ
 // @author       peashooter and Github Copilot
 // @match        https://animemusicquiz.com/*
@@ -40,8 +40,8 @@ const applyHideEffect = ($message) => {
         $message.removeClass("hide");
         $message.addClass("content-hidden");
         const $messageContent = $message.find(".gcMessage");
-        if (!$messageContent.data("original-text")) {
-            $messageContent.data("original-text", $messageContent.text());
+        if (!$messageContent.data("original-html")) {
+            $messageContent.data("original-html", $messageContent.html());
         }
         $messageContent.text("[hidden]");
     }
@@ -51,9 +51,9 @@ const removeHideEffect = ($message) => {
     $message.removeClass("hide");
     $message.removeClass("content-hidden");
     const $messageContent = $message.find(".gcMessage");
-    const originalText = $messageContent.data("original-text");
-    if (originalText) {
-        $messageContent.text(originalText);
+    const originalHtml = $messageContent.data("original-html");
+    if (originalHtml) {
+        $messageContent.html(originalHtml);
     }
 };
 
