@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         AMQ Answer Stats
 // @namespace    https://github.com/kempanator
-// @version      0.40
+// @version      0.45
 // @description  Adds a window to display quiz answer stats
 // @author       kempanator
 // @match        https://*.animemusicquiz.com/*
 // @grant        none
 // @require      https://github.com/joske2865/AMQ-Scripts/raw/master/common/amqScriptInfo.js
 // @require      https://github.com/joske2865/AMQ-Scripts/raw/master/common/amqWindows.js
-// @require      https://github.com/amq-script-project/AMQ-Scripts/raw/master/gameplay/amqAnswerTimesUtility.user.js
 // @downloadURL  https://github.com/kempanator/amq-scripts/raw/main/amqAnswerStats.user.js
 // @updateURL    https://github.com/kempanator/amq-scripts/raw/main/amqAnswerStats.user.js
 // ==/UserScript==
@@ -22,6 +21,7 @@ Features:
 5. Add a window to display the quiz song distribution by song type and difficulty
 6. Custom: Sync main window position with hidden video frame
 7. Custom: Filter answer history by correct answers only
+8. Custom: Advanced distribution table for Novice Ranked
 */
 
 "use strict";
@@ -33,7 +33,7 @@ const loadInterval = setInterval(() => {
     }
 }, 500);
 
-const SCRIPT_VERSION = "0.40 customed";
+const SCRIPT_VERSION = "0.45 customed";
 const SCRIPT_NAME = "Answer Stats";
 const regionMap = { E: "Eastern", C: "Central", W: "Western" };
 const NOVICE_DISTRIBUTION_TARGETS = [
@@ -54,7 +54,8 @@ let distributionWindow;
 let answers = {}; //{1: {name, id, answer, correct}, ...}
 let songHistory = {}; //{1: {romaji, english, number, artist, song, type, vintage, difficulty, fastestSpeed, fastestPlayers, answers: {1: {id, text, speed, correct, rank, score, invalidAnswer, uniqueAnswer, noAnswer}, ...}, ...}
 let playerInfo = {}; //{1: {name, id, level, score, rank, box, averageSpeed, correctSpeedList}, ...}
-let animeListLower = []; //store lowercase version for faster compare speed
+let answerTimes = {}; //{0: 1000}
+let animeListMap = {}; //store lowercase version for faster compare speed
 let averageSpeedSort = { mode: "score", ascending: false };
 let songHistoryFilter = { type: "all" };
 let songHistorySort = { mode: "position", ascending: true };
@@ -75,16 +76,17 @@ let hotKeys = {
 
 function setup() {
     new Listener("get all song names", (data) => {
-        animeListLower = data.names.map(x => x.toLowerCase());
+        animeListMap = data.names.reduce((map, anime) => {
+            map[anime.toLowerCase()] = anime;
+            return map;
+        }, {});
     }).bindListener();
     new Listener("update all song names", (data) => {
-        if (data.deleted.length) {
-            const deletedLower = data.deleted.map(x => x.toLowerCase());
-            animeListLower = animeListLower.filter(name => !deletedLower.includes(name));
+        for (const anime of data.deleted) {
+            delete animeListMap[anime.toLowerCase()];
         }
-        if (data.new.length) {
-            const newLower = data.new.map(x => x.toLowerCase());
-            animeListLower.push(...newLower);
+        for (const anime of data.new) {
+            animeListMap[anime.toLowerCase()] = anime;
         }
     }).bindListener();
     new Listener("Game Starting", (data) => {
@@ -107,8 +109,18 @@ function setup() {
             joinRoomUpdate(data);
         }
     }).bindListener();
+    new Listener("play next song", () => {
+        answerTimes = {};
+    }).bindListener()
+    new Listener("player answered", (data) => {
+        for (const item of data) {
+            for (const id of item.gamePlayerIds) {
+                answerTimes[id] = Math.floor(item.answerTime * 1000);
+            }
+        }
+    }).bindListener();
     new Listener("player answers", (data) => {
-        if (!animeListLower.length) {
+        if (Object.keys(animeListMap).length === 0) {
             quiz.answerInput.typingInput.autoCompleteController.updateList();
         }
         answers = {};
@@ -122,13 +134,14 @@ function setup() {
     }).bindListener();
     new Listener("answer results", (data) => {
         if (Object.keys(answers).length === 0) return;
-        if (animeListLower.length === 0) return;
+        if (Object.keys(animeListMap).length === 0) return;
         const currentPlayer = quizVideoController.getCurrentPlayer();
         const songNumber = parseInt(quiz.infoContainer.$currentSongCount.text());
-        if (songNumber < Math.max(...Object.keys(songHistory).map(x => parseInt(x)))) songHistory = {}; //handle jam reset
+        const maxSongNumber = Math.max(...Object.keys(songHistory).map(Number));
+        if (songNumber < maxSongNumber) songHistory = {}; //handle jam reset
         const correctPlayers = {}; //{id: answer speed, ...}
-        const correctAnswerIdList = {}; //{title: [], ...}
-        const incorrectAnswerIdList = {}; //{title: [], ...}
+        const correctAnswerIdMap = {}; //{title: [], ...}
+        const incorrectAnswerIdMap = {}; //{title: [], ...}
         const otherAnswerIdList = []; //unique incorrect answers
         const invalidAnswerIdList = [];
         const noAnswerIdList = [];
@@ -143,7 +156,7 @@ function setup() {
             animeTags: info.animeTags,
             animeGenre: info.animeGenre,
             songNumber: songNumber,
-            songArtist: info.artist ?? info.artistInfo.name,
+            songArtist: info.artist ?? info.artistInfo?.name,
             songArranger: info.arrangerInfo?.name,
             songComposer: info.composerInfo?.name,
             songName: info.songName,
@@ -165,104 +178,95 @@ function setup() {
             answers: {}
         };
         for (const anime of info.altAnimeNames.concat(info.altAnimeNamesAnswers)) {
-            correctAnswerIdList[anime] = [];
+            correctAnswerIdMap[anime] = [];
         }
         for (const player of data.players) {
             const quizPlayer = answers[player.gamePlayerId];
-            if (quizPlayer) {
-                quizPlayer.correct = player.correct;
-                const speed = validateSpeed(amqAnswerTimesUtility.playerTimes[player.gamePlayerId]);
-                if (player.correct && speed) correctPlayers[answers[player.gamePlayerId].id] = speed;
-                const item = playerInfo[player.gamePlayerId];
-                if (item) {
-                    item.level = player.level;
-                    item.score = getScore(player);
-                    item.rank = player.position;
-                    if (player.correct && speed) {
-                        item.correctSpeedList.push(speed);
-                        item.averageSpeed = item.correctSpeedList.reduce((a, b) => a + b) / item.correctSpeedList.length;
-                        item.standardDeviation = Math.sqrt(item.correctSpeedList.map((x) => (x - item.averageSpeed) ** 2).reduce((a, b) => a + b) / item.correctSpeedList.length);
-                    }
+            if (!quizPlayer) continue;
+            quizPlayer.correct = player.correct;
+            const speed = answerTimes[player.gamePlayerId] ?? null;
+            if (player.correct) { // players on teams can be correct but have no speed
+                correctPlayers[player.gamePlayerId] = speed;
+            }
+            const item = playerInfo[player.gamePlayerId];
+            if (item) {
+                item.level = player.level;
+                item.score = getScore(player);
+                item.rank = player.position;
+                if (player.correct && speed) {
+                    item.correctSpeedList.push(speed);
+                    item.averageSpeed = item.correctSpeedList.reduce((a, b) => a + b) / item.correctSpeedList.length;
+                    item.standardDeviation = Math.sqrt(item.correctSpeedList.map((x) => (x - item.averageSpeed) ** 2).reduce((a, b) => a + b) / item.correctSpeedList.length);
                 }
-                else {
-                    playerInfo[player.gamePlayerId] = {
-                        name: quizPlayer.name,
-                        id: player.gamePlayerId,
-                        level: player.level,
-                        score: getScore(player),
-                        rank: player.position,
-                        correctSpeedList: (player.correct && speed) ? [speed] : [],
-                        averageSpeed: (player.correct && speed) ? speed : 0,
-                        standardDeviation: 0
-                    };
-                }
-                songHistory[songNumber].answers[player.gamePlayerId] = {
+            }
+            else {
+                playerInfo[player.gamePlayerId] = {
+                    name: quizPlayer.name,
                     id: player.gamePlayerId,
-                    text: answers[player.gamePlayerId].answer,
-                    speed: speed,
-                    correct: player.correct,
+                    level: player.level,
+                    score: getScore(player),
                     rank: player.position,
-                    score: getScore(player)
+                    correctSpeedList: (player.correct && speed) ? [speed] : [],
+                    averageSpeed: (player.correct && speed) ? speed : 0,
+                    standardDeviation: 0
                 };
             }
+            songHistory[songNumber].answers[player.gamePlayerId] = {
+                id: player.gamePlayerId,
+                text: answers[player.gamePlayerId].answer,
+                speed: speed,
+                correct: player.correct,
+                rank: player.position,
+                score: getScore(player)
+            };
         }
         for (const player of Object.values(answers)) {
             const answerItem = songHistory[songNumber].answers[player.id];
-            if (answerItem) {
-                if (player.answer.trim() === "") {
-                    noAnswerIdList.push(player.id);
-                    answerItem.noAnswer = true;
-                }
-                else {
-                    const answerLowerCase = player.answer.toLowerCase();
-                    let index = Object.keys(correctAnswerIdList).findIndex((value) => answerLowerCase === value.toLowerCase());
-                    if (index > -1) {
-                        correctAnswerIdList[Object.keys(correctAnswerIdList)[index]].push(player.id);
-                    }
-                    else {
-                        index = animeListLower.findIndex((value) => answerLowerCase === value);
-                        if (index > -1) {
-                            const wrongAnime = quiz.answerInput.typingInput.autoCompleteController.list[index] ?? animeListLower[index];
-                            if (incorrectAnswerIdList.hasOwnProperty(wrongAnime)) {
-                                incorrectAnswerIdList[wrongAnime].push(player.id);
-                            }
-                            else {
-                                incorrectAnswerIdList[wrongAnime] = [player.id];
-                            }
-                        }
-                        else {
-                            invalidAnswerIdList.push(player.id);
-                            answerItem.invalidAnswer = true;
-                        }
-                    }
-                }
+            if (!answerItem) {
+                continue;
             }
+            if (player.answer.trim() === "") {
+                noAnswerIdList.push(player.id);
+                answerItem.noAnswer = true;
+                continue;
+            }
+            const answerLC = player.answer.toLowerCase();
+            const correctKey = Object.keys(correctAnswerIdMap).find(k => k.toLowerCase() === answerLC);
+            if (correctKey) {
+                correctAnswerIdMap[correctKey].push(player.id);
+                continue;
+            }
+            if (animeListMap.hasOwnProperty(answerLC)) {
+                const anime = animeListMap[answerLC];
+                (incorrectAnswerIdMap[anime] ??= []).push(player.id);
+                continue;
+            }
+            invalidAnswerIdList.push(player.id);
+            answerItem.invalidAnswer = true;
         }
         const numCorrect = Object.keys(correctPlayers).length;
-        const averageSpeed = numCorrect ? Math.round(Object.values(correctPlayers).reduce((a, b) => a + b) / numCorrect) : null;
-        const fastestSpeed = numCorrect ? Math.min(...Object.values(correctPlayers)) : null;
-        const fastestPlayers = Object.keys(correctPlayers).filter((id) => correctPlayers[id] === fastestSpeed);
+        const validSpeeds = Object.values(correctPlayers).filter(Boolean);
+        const averageSpeed = validSpeeds.length ? Math.round(validSpeeds.reduce((a, b) => a + b, 0) / validSpeeds.length) : null;
+        const fastestSpeed = validSpeeds.length ? Math.min(...validSpeeds) : null;
+        const fastestPlayers = validSpeeds.length ? Object.keys(correctPlayers).filter((id) => correctPlayers[id] === fastestSpeed) : [];
         songHistory[songNumber].fastestSpeed = fastestSpeed;
         songHistory[songNumber].fastestPlayers = fastestPlayers;
-        for (const anime of Object.keys(incorrectAnswerIdList)) {
-            if (incorrectAnswerIdList[anime].length === 1) {
-                const id = incorrectAnswerIdList[anime][0];
+        for (const anime of Object.keys(incorrectAnswerIdMap)) {
+            if (incorrectAnswerIdMap[anime].length === 1) {
+                const id = incorrectAnswerIdMap[anime][0];
                 otherAnswerIdList.push(id);
                 songHistory[songNumber].answers[id].uniqueAnswer = true;
             }
         }
-        const correctSortedKeys = Object.keys(correctAnswerIdList).sort((a, b) => correctAnswerIdList[b].length - correctAnswerIdList[a].length);
-        const incorrectSortedKeys = Object.keys(incorrectAnswerIdList).sort((a, b) => incorrectAnswerIdList[b].length - incorrectAnswerIdList[a].length);
+        const correctSortedKeys = Object.keys(correctAnswerIdMap).sort((a, b) => correctAnswerIdMap[b].length - correctAnswerIdMap[a].length);
+        const incorrectSortedKeys = Object.keys(incorrectAnswerIdMap).sort((a, b) => incorrectAnswerIdMap[b].length - incorrectAnswerIdMap[a].length);
         answers = {};
 
         setTimeout(() => {
             const activePlayers = $("#qpScoreBoardEntryContainer .qpStandingItem:not(.disabled)").length;
             const roomName = hostModal.$roomName.val();
-
-            // Reverted to 0.36 logic as requested
-            const difficultyList = songHistoryWindow.currentGameTab.table.rows.map((x) => parseFloat(x.songInfo.animeDifficulty) || 0);
-            const songTypeList = songHistoryWindow.currentGameTab.table.rows.map((x) => x.songInfo.type);
-
+            const difficultyList = Object.values(songHistory).map(x => parseFloat(x.songDifficulty) || 0);
+            const songTypeList = Object.values(songHistory).map(x => x.songType);
             $("#asRoomInfoRow").empty().append(`
                 <span><b>${roomNameText()}</b></span>
                 <span style="margin-left: 20px"><b>Song:</b> ${songNumber}/${quiz.infoContainer.$totalSongCount.text()}</span>
@@ -270,12 +274,12 @@ function setup() {
             `);
             $("#asSongDistributionRow span").remove();
             $("#asSongDistributionRow").append(`
-                <span style="margin-left: 10px"><b>OP:</b> ${songTypeList.filter((x) => x === 1).length}</span>
-                <span style="margin-left: 10px"><b>ED:</b> ${songTypeList.filter((x) => x === 2).length}</span>
-                <span style="margin-left: 10px"><b>IN:</b> ${songTypeList.filter((x) => x === 3).length}</span>
-                <span style="margin-left: 20px"><b>Easy:</b> ${difficultyList.filter((x) => x >= 60).length}</span>
-                <span style="margin-left: 10px"><b>Medium:</b> ${difficultyList.filter((x) => x >= 25 && x < 60).length}</span>
-                <span style="margin-left: 10px"><b>Hard:</b> ${difficultyList.filter((x) => x < 25).length}</span>
+                <span style="margin-left: 10px"><b>OP:</b> ${songTypeList.filter(x => x === 1).length}</span>
+                <span style="margin-left: 10px"><b>ED:</b> ${songTypeList.filter(x => x === 2).length}</span>
+                <span style="margin-left: 10px"><b>IN:</b> ${songTypeList.filter(x => x === 3).length}</span>
+                <span style="margin-left: 20px"><b>Easy:</b> ${difficultyList.filter(x => x >= 60).length}</span>
+                <span style="margin-left: 10px"><b>Medium:</b> ${difficultyList.filter(x => x >= 25 && x < 60).length}</span>
+                <span style="margin-left: 10px"><b>Hard:</b> ${difficultyList.filter(x => x < 25).length}</span>
             `);
             const options = $("#asDistributionButton").data("bs.popover").options;
             if (quiz.gameMode === "Ranked") {
@@ -299,10 +303,11 @@ function setup() {
                 const $speedRow = $("#asAnswerSpeedRow").empty().show();
                 $speedRow.append(`<span><b>Average:</b> ${averageSpeed}ms</span><span style="margin-left: 20px"><b>Fastest:</b> ${fastestSpeed}ms - </span>`);
                 fastestPlayers.forEach((id, i) => {
-                    $speedRow.append($("<span>", { text: playerInfo[id].name, style: "cursor: pointer;" }).click(() => {
-                        displayPlayerHistoryResults(id);
-                        answerHistoryWindow.open();
-                    }));
+                    $speedRow.append($("<span>", { text: playerInfo[id].name, style: "cursor: pointer;" })
+                        .on("click", () => {
+                            displayPlayerHistoryResults(id);
+                            answerHistoryWindow.open();
+                        }));
                     if (i < fastestPlayers.length - 1) $speedRow.append(", ");
                 });
             }
@@ -313,11 +318,11 @@ function setup() {
                 const $correctRow = $("#asCorrectPlayersRow").empty().show();
                 $correctRow.append(`<span><b>Correct Players: </b></span>`);
                 Object.keys(correctPlayers).forEach((id, i) => {
-                    const playerElement = $("<span>", { text: playerInfo[id].name, style: "cursor: pointer;" }).click(() => {
-                        displayPlayerHistoryResults(id);
-                        answerHistoryWindow.open();
-                    });
-                    $correctRow.append(playerElement);
+                    $correctRow.append($("<span>", { text: playerInfo[id].name, style: "cursor: pointer;" })
+                        .on("click", () => {
+                            displayPlayerHistoryResults(id);
+                            answerHistoryWindow.open();
+                        }));
                     if (i < Object.keys(correctPlayers).length - 1) $correctRow.append(", ");
                 });
             }
@@ -325,68 +330,75 @@ function setup() {
                 $("#asCorrectPlayersRow").empty().hide();
             }
             const $ulCorrect = $("#asCorrectAnswersList").empty();
-            $ulCorrect.append($("<b>", { text: "Correct Answers:", style: "cursor: pointer;" }).click(() => {
-                songHistoryFilter = { type: "allCorrectAnswers" };
-                displaySongHistoryResults(songNumber);
-                answerHistoryWindow.open();
-            }));
+            $ulCorrect.append($("<b>", { text: "Correct Answers:", style: "cursor: pointer;" })
+                .on("click", () => {
+                    songHistoryFilter = { type: "allCorrectAnswers" };
+                    displaySongHistoryResults(songNumber);
+                    answerHistoryWindow.open();
+                }));
             for (const anime of correctSortedKeys) {
-                if (correctAnswerIdList[anime].length > 0) {
+                if (correctAnswerIdMap[anime].length > 0) {
                     $ulCorrect.append($("<li>")
-                        .append($("<span>", { class: "answerStatsAnimeTitle", text: anime, style: "cursor: pointer;" }).click(() => {
-                            songHistoryFilter = { type: "answer", answer: anime };
-                            displaySongHistoryResults(songNumber);
-                            answerHistoryWindow.open()
-                        }))
-                        .append($("<span>", { class: "answerStatsNumber", text: correctAnswerIdList[anime].length }))
+                        .append($("<span>", { class: "answerStatsAnimeTitle", text: anime, style: "cursor: pointer;" })
+                            .on("click", () => {
+                                songHistoryFilter = { type: "answer", answer: anime };
+                                displaySongHistoryResults(songNumber);
+                                answerHistoryWindow.open()
+                            }))
+                        .append($("<span>", { class: "answerStatsNumber", text: correctAnswerIdMap[anime].length }))
                     );
                 }
             }
             const $ulWrong = $("#asWrongAnswersList").empty();
-            $ulWrong.append($("<b>", { text: "Wrong Answers:", style: "cursor: pointer;" }).click(() => {
-                songHistoryFilter = { type: "allWrongAnswers" };
-                displaySongHistoryResults(songNumber);
-                answerHistoryWindow.open();
-            }));
+            $ulWrong.append($("<b>", { text: "Wrong Answers:", style: "cursor: pointer;" })
+                .on("click", () => {
+                    songHistoryFilter = { type: "allWrongAnswers" };
+                    displaySongHistoryResults(songNumber);
+                    answerHistoryWindow.open();
+                }));
             for (const anime of incorrectSortedKeys) {
-                if (incorrectAnswerIdList[anime].length > 1) {
+                if (incorrectAnswerIdMap[anime].length > 1) {
                     $ulWrong.append($("<li>")
-                        .append($("<span>", { class: "answerStatsAnimeTitle", text: anime, style: "cursor: pointer;" }).click(() => {
-                            songHistoryFilter = { type: "answer", answer: anime };
-                            displaySongHistoryResults(songNumber);
-                            answerHistoryWindow.open();
-                        }))
-                        .append($("<span>", { class: "answerStatsNumber", text: incorrectAnswerIdList[anime].length }))
+                        .append($("<span>", { class: "answerStatsAnimeTitle", text: anime, style: "cursor: pointer;" })
+                            .on("click", () => {
+                                songHistoryFilter = { type: "answer", answer: anime };
+                                displaySongHistoryResults(songNumber);
+                                answerHistoryWindow.open();
+                            }))
+                        .append($("<span>", { class: "answerStatsNumber", text: incorrectAnswerIdMap[anime].length }))
                     );
                 }
             }
             if (otherAnswerIdList.length > 0) {
                 $ulWrong.append($("<li>")
-                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "Other Answer", style: "cursor: pointer;" }).click(() => {
-                        songHistoryFilter = { type: "uniqueValidWrongAnswers" };
-                        displaySongHistoryResults(songNumber);
-                        answerHistoryWindow.open();
-                    }))
+                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "Other Answer", style: "cursor: pointer;" })
+                        .on("click", () => {
+                            songHistoryFilter = { type: "uniqueValidWrongAnswers" };
+                            displaySongHistoryResults(songNumber);
+                            answerHistoryWindow.open();
+                        }))
                     .append($("<span>", { class: "answerStatsNumber", text: otherAnswerIdList.length }))
                 );
             }
             if (invalidAnswerIdList.length > 0) {
                 $ulWrong.append($("<li>")
-                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "Invalid Answer", style: "cursor: pointer;" }).click(() => {
-                        songHistoryFilter = { type: "invalidAnswers" };
-                        displaySongHistoryResults(songNumber);
-                        answerHistoryWindow.open();
-                    }))
+                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "Invalid Answer", style: "cursor: pointer;" })
+                        .on("click", () => {
+                            songHistoryFilter = { type: "invalidAnswers" };
+                            displaySongHistoryResults(songNumber);
+                            answerHistoryWindow.open();
+                        }))
                     .append($("<span>", { class: "answerStatsNumber", text: invalidAnswerIdList.length }))
                 );
             }
             if (noAnswerIdList.length > 0) {
                 $ulWrong.append($("<li>")
-                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "No Answer", style: "cursor: pointer;" }).click(() => {
-                        songHistoryFilter = { type: "noAnswers" };
-                        displaySongHistoryResults(songNumber);
-                        answerHistoryWindow.open();
-                    }))
+                    .append($("<span>", { class: "answerStatsAnimeTitle", text: "No Answer", style: "cursor: pointer;" })
+                        .on("click", () => {
+                            songHistoryFilter = { type: "noAnswers" };
+                            displaySongHistoryResults(songNumber);
+                            answerHistoryWindow.open();
+                        }))
                     .append($("<span>", { class: "answerStatsNumber", text: noAnswerIdList.length }))
                 );
             }
@@ -512,10 +524,10 @@ function setup() {
     answerStatsWindow.window.on('shown.bs.modal', syncAnswerStatsWindowPosition);
 
     answerStatsWindow.window.find(".modal-header").empty()
-        .append($(`<i class="fa fa-times clickAble" style="font-size: 25px; top: 8px; right: 15px; position: absolute;" aria-hidden="true"></i>`).click(() => {
+        .append($(`<i class="fa fa-times clickAble" style="font-size: 25px; top: 8px; right: 15px; position: absolute;" aria-hidden="true"></i>`).on("click", () => {
             answerStatsWindow.close();
         }))
-        .append($(`<i class="fa fa-cog clickAble" style="font-size: 22px; top: 11px; right: 42px; position: absolute;" aria-hidden="true"></i>`).click(() => {
+        .append($(`<i class="fa fa-cog clickAble" style="font-size: 22px; top: 11px; right: 42px; position: absolute;" aria-hidden="true"></i>`).on("click", () => {
             $("#asMainContainer").toggle();
             $("#asSettingsContainer").toggle();
         }))
@@ -528,7 +540,7 @@ function setup() {
                     trigger: "hover",
                     content: "complete answer history for all players and all songs in current quiz"
                 })
-                .click(() => {
+                .on("click", () => {
                     answerHistoryWindow.isVisible() ? answerHistoryWindow.close() : answerHistoryWindow.open();
                 })
             )
@@ -540,7 +552,7 @@ function setup() {
                     trigger: "hover",
                     content: "list everyone's average speed for correct answers"
                 })
-                .click(() => {
+                .on("click", () => {
                     answerSpeedWindow.isVisible() ? answerSpeedWindow.close() : answerSpeedWindow.open();
                 })
             )
@@ -552,7 +564,7 @@ function setup() {
                     trigger: "hover",
                     content: "compare answers between players to detect teaming"
                 })
-                .click(() => {
+                .on("click", () => {
                     answerCompareWindow.isVisible() ? answerCompareWindow.close() : answerCompareWindow.open();
                 })
             )
@@ -564,7 +576,7 @@ function setup() {
                     trigger: "hover",
                     content: "show anime distribution by type and difficulty"
                 })
-                .click(() => {
+                .on("click", () => {
                     distributionWindow.isVisible() ? distributionWindow.close() : distributionWindow.open();
                 })
             )
@@ -622,7 +634,7 @@ function setup() {
                 trigger: "hover",
                 content: "save current game results to json file"
             })
-            .click(() => {
+            .on("click", () => {
                 saveResults();
             }))
         .append($(`<div class="answerStatsIcon"></div>`)
@@ -633,7 +645,7 @@ function setup() {
                 trigger: "hover",
                 content: "show fastest speed for each song"
             })
-            .click(() => {
+            .on("click", () => {
                 displayFastestSpeedResults();
             }))
         .append($("<div>", { class: "answerStatsIcon filterButton" })
@@ -645,7 +657,7 @@ function setup() {
                 trigger: "hover",
                 content: "reset answer filter"
             })
-            .click(function () {
+            .on("click", function () {
                 $(this).hide();
                 songHistoryFilter = { type: "all" };
                 displaySongHistoryResults(answerHistorySettings.songNumber);
@@ -664,13 +676,13 @@ function setup() {
                 title: "",
                 content: ""
             }))
-        .append($("<div>", { class: "answerStatsButton arrowButton", text: "«" }).hide().click(() => {
+        .append($("<div>", { class: "answerStatsButton arrowButton", text: "«" }).hide().on("click", () => {
             if (Object.keys(songHistory).length) {
                 songHistoryFilter = { type: "all" };
                 displaySongHistoryResults(parseInt(Object.keys(songHistory)[0]));
             }
         }))
-        .append($("<div>", { class: "answerStatsButton arrowButton", text: "‹" }).hide().click(() => {
+        .append($("<div>", { class: "answerStatsButton arrowButton", text: "‹" }).hide().on("click", () => {
             if (Object.keys(songHistory).length) {
                 const songNumber = answerHistorySettings.songNumber;
                 if (songNumber !== Object.values(songHistory)[0].songNumber) {
@@ -679,7 +691,7 @@ function setup() {
                 }
             }
         }))
-        .append($("<div>", { class: "answerStatsButton arrowButton", text: "›" }).hide().click(() => {
+        .append($("<div>", { class: "answerStatsButton arrowButton", text: "›" }).hide().on("click", () => {
             if (Object.keys(songHistory).length) {
                 const songNumber = answerHistorySettings.songNumber;
                 if (songNumber !== Object.values(songHistory).slice(-1)[0].songNumber) {
@@ -688,13 +700,13 @@ function setup() {
                 }
             }
         }))
-        .append($("<div>", { class: "answerStatsButton arrowButton", text: "»" }).hide().click(() => {
+        .append($("<div>", { class: "answerStatsButton arrowButton", text: "»" }).hide().on("click", () => {
             if (Object.keys(songHistory).length) {
                 songHistoryFilter = { type: "all" };
                 displaySongHistoryResults(Object.values(songHistory).slice(-1)[0].songNumber);
             }
         }))
-        .append($("<div>", { class: "answerStatsButton backButton", text: "back" }).hide().click(() => {
+        .append($("<div>", { class: "answerStatsButton backButton", text: "back" }).hide().on("click", () => {
             if (Object.keys(songHistory).length) {
                 if (songHistory[answerHistorySettings.songNumber]) {
                     displaySongHistoryResults(answerHistorySettings.songNumber);
@@ -715,7 +727,7 @@ function setup() {
 
     // Custom: Add "Correct Only" checkbox
     const $correctOnlyDiv = $("<div></div>").css({"display": "inline-block", "margin-left": "10px"});
-    const $correctOnlyCheckbox = $(`<input type="checkbox" style="margin-left: 5px; vertical-align: middle;">`).click(function() {
+    const $correctOnlyCheckbox = $(`<input type="checkbox" style="margin-left: 5px; vertical-align: middle;">`).on("click", function() {
         isCorrectOnly = $(this).prop("checked");
         if (Object.keys(songHistory).length && answerHistorySettings.mode === "song") {
             displaySongHistoryResults(answerHistorySettings.songNumber);
@@ -734,13 +746,13 @@ function setup() {
         .append($("<div>", { text: "Average Speed", style: "font-size: 23px; line-height: normal; margin: 6px 0 2px 8px" }))
         .append($("<div>", { style: "margin: 0 0 0 8px;" })
             .append(`<span style="font-size: 16px">Sort:</span>`)
-            .append($("<div>", { id: "averageSpeedSortModeButton", class: "answerStatsButton", text: averageSpeedSort.mode }).click(function () {
+            .append($("<div>", { id: "averageSpeedSortModeButton", class: "answerStatsButton", text: averageSpeedSort.mode }).on("click", function () {
                 const modes = ["score", "time", "name"];
                 averageSpeedSort.mode = modes[(modes.indexOf(averageSpeedSort.mode) + 1) % modes.length];
                 $(this).text(averageSpeedSort.mode);
                 displayAverageSpeedResults();
             }))
-            .append($("<div>", { id: "averageSpeedSortDirectionButton", class: "answerStatsButton", text: averageSpeedSort.ascending ? "🡅" : "🡇" }).click(function () {
+            .append($("<div>", { id: "averageSpeedSortDirectionButton", class: "answerStatsButton", text: averageSpeedSort.ascending ? "🡅" : "🡇" }).on("click", function () {
                 averageSpeedSort.ascending = !averageSpeedSort.ascending;
                 $(this).text(averageSpeedSort.ascending ? "🡅" : "🡇");
                 displayAverageSpeedResults();
@@ -752,20 +764,20 @@ function setup() {
     $header
         .append($("<div>", { text: "Answer Compare", style: "font-size: 23px; line-height: normal; margin: 6px 0 2px 8px;" }))
         .append($("<div>", { style: "float: left; margin: 3px 0 0 8px;" })
-            .append($("<input>", { id: "answerCompareSearchInput", type: "text" }).keypress((event) => {
+            .append($("<input>", { id: "answerCompareSearchInput", type: "text" }).on("keypress", (event) => {
                 if (event.key === "Enter") {
                     displayAnswerCompareResults($("#answerCompareSearchInput").val());
                 }
             }))
-            .append($("<div>", { id: "answerCompareButtonGo", class: "answerStatsButton", text: "Go" }).click(() => {
+            .append($("<div>", { id: "answerCompareButtonGo", class: "answerStatsButton", text: "Go" }).on("click", () => {
                 displayAnswerCompareResults($("#answerCompareSearchInput").val());
             }))
             .append($("<label>", { class: "clickAble", style: "margin-left: 10px;", text: "Correct" })
-                .append($("<input>", { id: "answerCompareHighlightCorrectCheckbox", type: "checkbox" }).click(() => {
+                .append($("<input>", { id: "answerCompareHighlightCorrectCheckbox", type: "checkbox" }).on("click", () => {
                     setTimeout(() => { displayAnswerCompareResults($("#answerCompareSearchInput").val()) }, 1);
                 })))
             .append($("<label>", { class: "clickAble", style: "margin-left: 10px;", text: "Wrong" })
-                .append($("<input>", { id: "answerCompareHighlightWrongCheckbox", type: "checkbox" }).click(() => {
+                .append($("<input>", { id: "answerCompareHighlightWrongCheckbox", type: "checkbox" }).on("click", () => {
                     setTimeout(() => { displayAnswerCompareResults($("#answerCompareSearchInput").val()) }, 1);
                 })))
         );
@@ -826,7 +838,7 @@ function setup() {
         .width((i, w) => w + 35)
         .children("div")
         .append($(`<div id="qpAnswerStats" class="clickAble qpOption"><i aria-hidden="true" class="fa fa-list-alt qpMenuItem"></i></div>`)
-            .click(() => {
+            .on("click", () => {
                 answerStatsWindow.isVisible() ? answerStatsWindow.close() : answerStatsWindow.open();
             })
             .popover({
@@ -836,7 +848,7 @@ function setup() {
             })
         );
 
-    $("#optionListSettings").before($("<li>", { class: "clickAble", text: "Answer Stats" }).click(() => {
+    $("#optionListSettings").before($("<li>", { class: "clickAble", text: "Answer Stats" }).on("click", () => {
         answerStatsWindow.open();
     }));
     $("#asSettingsContainer").hide();
@@ -844,7 +856,7 @@ function setup() {
     applyStyles();
     AMQ_addScriptData({
         name: SCRIPT_NAME,
-        author: "kempanator",
+        author: "kempanator (merged by Gemini)",
         version: SCRIPT_VERSION,
         link: "https://github.com/kempanator/amq-scripts/raw/main/amqAnswerStats.user.js",
         description: `
@@ -956,10 +968,10 @@ function displayAverageSpeedResults() {
         if (!player) continue;
         const $row = $("<div>").addClass(colorClass(player.name))
             .append($("<span>", { class: "time", text: Math.round(player.averageSpeed) }))
-            .append($(`<i class="fa fa-id-card-o clickAble" aria-hidden="true"></i>`).click(() => {
+            .append($(`<i class="fa fa-id-card-o clickAble" aria-hidden="true"></i>`).on("click", () => {
                 playerProfileController.loadProfile(player.name, $("#answerSpeedWindow"), {}, () => { }, false, true);
             }))
-            .append($("<span>", { class: "name", text: player.name, style: "cursor: pointer;" }).click(() => {
+            .append($("<span>", { class: "name", text: player.name, style: "cursor: pointer;" }).on("click", () => {
                 displayPlayerHistoryResults(id);
                 answerHistoryWindow.open();
             }))
@@ -1237,7 +1249,7 @@ function displayAnswerCompareResults(text) {
         let numCorrect = 0;
         let numWrong = 0;
         const $row = $("<tr>");
-        $row.append($("<td>", { class: "songNumber", text: songNumber, style: "cursor: pointer;" }).click(() => {
+        $row.append($("<td>", { class: "songNumber", text: songNumber, style: "cursor: pointer;" }).on("click", () => {
             displaySongHistoryResults(songNumber);
             answerHistoryWindow.open();
         }));
@@ -1311,14 +1323,11 @@ function displayDistributionResults(difficultyList, songTypeList, roomName) {
         return ''; // No special color if equal
     };
 
-    // --- START: NEW LOGIC FOR TOTALS ---
-    // Calculate current totals
     const currentTotalOP = tableData.reduce((sum, row) => sum + row.OP, 0);
     const currentTotalED = tableData.reduce((sum, row) => sum + row.ED, 0);
     const currentTotalIN = tableData.reduce((sum, row) => sum + row.IN, 0);
     const currentGrandTotal = currentTotalOP + currentTotalED + currentTotalIN;
 
-    // Calculate target totals (only if in Novice Ranked)
     let targetTotalOP = 0;
     let targetTotalED = 0;
     let targetTotalIN = 0;
@@ -1327,7 +1336,6 @@ function displayDistributionResults(difficultyList, songTypeList, roomName) {
         targetTotalED = NOVICE_DISTRIBUTION_TARGETS.reduce((sum, row) => sum + row.ED, 0);
         targetTotalIN = NOVICE_DISTRIBUTION_TARGETS.reduce((sum, row) => sum + row.IN, 0);
     }
-    // --- END: NEW LOGIC FOR TOTALS ---
 
     const tableHTML = `
         <table id="asDistributionTable" class="styledTable" style="margin-top: 10px; width: 100%; text-align: center;">
@@ -1349,26 +1357,26 @@ function displayDistributionResults(difficultyList, songTypeList, roomName) {
                     <td>${tableData[0].OP + tableData[0].ED + tableData[0].IN}</td>
                 </tr>
                 <tr>
-                    <td>45-59</td>
+                    <td>45-60</td>
                     <td ${getColorStyle(tableData[1].OP, NOVICE_DISTRIBUTION_TARGETS[1].OP)}>${tableData[1].OP}</td>
                     <td ${getColorStyle(tableData[1].ED, NOVICE_DISTRIBUTION_TARGETS[1].ED)}>${tableData[1].ED}</td>
                     <td ${getColorStyle(tableData[1].IN, NOVICE_DISTRIBUTION_TARGETS[1].IN)}>${tableData[1].IN}</td>
                     <td rowspan="3" style="vertical-align: middle;">${mediumTotal}</td>
                 </tr>
                 <tr>
-                    <td>30-44</td>
+                    <td>30-45</td>
                     <td ${getColorStyle(tableData[2].OP, NOVICE_DISTRIBUTION_TARGETS[2].OP)}>${tableData[2].OP}</td>
                     <td ${getColorStyle(tableData[2].ED, NOVICE_DISTRIBUTION_TARGETS[2].ED)}>${tableData[2].ED}</td>
                     <td ${getColorStyle(tableData[2].IN, NOVICE_DISTRIBUTION_TARGETS[2].IN)}>${tableData[2].IN}</td>
                 </tr>
                 <tr>
-                    <td>25-34</td>
+                    <td>25-35</td>
                     <td ${getColorStyle(tableData[3].OP, NOVICE_DISTRIBUTION_TARGETS[3].OP)}>${tableData[3].OP}</td>
                     <td ${getColorStyle(tableData[3].ED, NOVICE_DISTRIBUTION_TARGETS[3].ED)}>${tableData[3].ED}</td>
                     <td ${getColorStyle(tableData[3].IN, NOVICE_DISTRIBUTION_TARGETS[3].IN)}>${tableData[3].IN}</td>
                 </tr>
                 <tr>
-                    <td>0-24</td>
+                    <td>0-25</td>
                     <td ${getColorStyle(tableData[4].OP, NOVICE_DISTRIBUTION_TARGETS[4].OP)}>${tableData[4].OP}</td>
                     <td ${getColorStyle(tableData[4].ED, NOVICE_DISTRIBUTION_TARGETS[4].ED)}>${tableData[4].ED}</td>
                     <td ${getColorStyle(tableData[4].IN, NOVICE_DISTRIBUTION_TARGETS[4].IN)}>${tableData[4].IN}</td>
@@ -1387,11 +1395,6 @@ function displayDistributionResults(difficultyList, songTypeList, roomName) {
 
     distributionWindow.panels[0].clear();
     distributionWindow.panels[0].panel.append(tableHTML);
-}
-
-// set undefined and glitched out speed times to null
-function validateSpeed(speed) {
-    return (speed && speed < 1000000) ? speed : null;
 }
 
 // get shortened host name
@@ -1512,6 +1515,7 @@ function getScore(player) {
 function resetHistory() {
     songHistory = {};
     playerInfo = {};
+    answerTimes = {};
     answerHistorySettings = { mode: "song", songNumber: null, playerId: null, roomType: "", roomName: "" };
     answerHistoryWindow.window.find("#answerHistoryCurrentSong").text("Song: ");
     answerHistoryWindow.window.find("#answerHistoryCurrentPlayer, .infoButton, .arrowButton, .backButton, .speedButton, .filterButton").hide();
@@ -1547,6 +1551,9 @@ function tableSortChange(obj, mode) {
 // clear and update room and player data
 function joinRoomUpdate(data) {
     resetHistory();
+    for (const player of data.quizState.players) {
+        answerTimes[player.gamePlayerId] = Math.floor(player.answerTimeing * 1000);
+    }
     answerHistorySettings.roomType = data.settings.gameMode;
     if (answerHistorySettings.roomType === "Ranked") {
         answerHistorySettings.roomName = regionMap[$("#mpRankedTimer h3").text()] + " " + data.settings.roomName;
