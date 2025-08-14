@@ -157,14 +157,21 @@ const setupDropD = () => {
 
       const val = $(this).val();
       if (typeof val === "string" && val != "") {
-        const suggestion = getSuggestions(val);
+        // Kiểm tra xem đáp án hiện tại đã valid chưa
+        if (animeListLower.includes(val.toLowerCase())) {
+          // Đã valid -> submit luôn không cần suggestion
+          quiz.answerInput.submitAnswer(true);
+        } else {
+          // Chưa valid -> lấy suggestion đầu tiên
+          const suggestion = getSuggestions(val);
 
-        // Avoid emptying the input if the dropdown has no items
-        if (suggestion == "") return;
+          // Avoid emptying the input if the dropdown has no items
+          if (suggestion == "") return;
 
-        // Send the answer
-        $(this).val(suggestion);
-        quiz.answerInput.submitAnswer(true);
+          // Send the answer
+          $(this).val(suggestion);
+          quiz.answerInput.submitAnswer(true);
+        }
 
         // Close the dropdown
         //quiz.answerInput.activeInputController.autoCompleteController.awesomepleteInstance.close();
