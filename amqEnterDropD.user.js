@@ -1,19 +1,19 @@
 // ==UserScript==
 // @name         AMQ Enter DropD
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9 customed
 // @description  Pressing Enter in the answer input will automatically send the value of the first suggestion in the dropdown list, or the highlighted item if any. If you don't press Enter before the guessing phase ends, this will happen automatically (except if you or any teammate already submitted a valid answer). Activate/deactivate with [ALT+Q].
-// @author       Einlar
+// @author       Einlar https://github.com/Einlar/AMQScripts/raw/main/amqEnterDropD.user.js
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
-// @downloadURL  https://github.com/Einlar/AMQScripts/raw/main/amqEnterDropD.user.js
-// @updateURL    https://github.com/Einlar/AMQScripts/raw/main/amqEnterDropD.user.js
+// @downloadURL  https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqEnterDropD.user.js
+// @updateURL    https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqEnterDropD.user.js
 // @grant        none
 // ==/UserScript==
 
 /**
  * CHANGELOG
- *
+ * 
  * v1.8
  * - Avoid sending the answer when guess phase ends if it was already submitted before (as this would just mess the timing).
  *
@@ -33,6 +33,7 @@
  * @type {boolean}
  */
 let active = true;
+let animeListLower = [];
 
 /**
  * Retrieve the first suggestion in the dropdown list, given a search string.
@@ -74,7 +75,55 @@ const getLastSubmittedAnswer = () =>
   quiz.answerInput.typingInput.quizAnswerState.currentAnswer;
 
 const setupDropD = () => {
+    // === Add Grammarly-style toggle button ===
+    const $grammarlyButton = $(`
+      <span class="UP62D" style="position: absolute; right: 30px; top: 50%; transform: translateY(-50%); z-index: 100;">
+        <button class="vkuMN Q_ghU" type="button" aria-label="Toggle EnterDropD"
+          style="
+            padding-left: 0px;
+            padding-right: 0px;
+            border-right-width: 0px;
+            border-left-width: 0px;
+            border-bottom-width: 0px;
+            border-top-width: 0px;
+            padding-top: 0px;
+            padding-bottom: 0px;
+            background-color: rgba(0,0,0,0);
+            width: 14px;
+            height: 14px;
+          ">
+          <div class="VNMHv knLsy BWwwG" style="width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">
+            <div class="L704q">
+              <div data-purpose="animation-wrapper">
+                <div class="xfAhf" style="width: 10px; height: 10px; border-radius: 50%; background: rgb(204, 204, 204); transition: background 0.3s;"></div>
+              </div>
+            </div>
+          </div>
+        </button>
+      </span>
+    `).appendTo("#qpAnswerInputContainer");
+
+    // Cập nhật màu nút theo trạng thái `active` và điều kiện anime
+    const $buttonElement = $grammarlyButton.find(".xfAhf");
+    const updateButtonColor = (isCorrectAnime = null) => {
+        if (!active) {
+            $buttonElement.css("background", "rgb(204, 204, 204)");
+        } else {
+            $buttonElement.css("background", isCorrectAnime === true ? "rgb(1, 131, 116)" : isCorrectAnime === false ? "rgb(255, 193, 7)" : "rgb(1, 131, 116)");
+        }
+    };
+
     // use tab as enter
+  new Listener("get all song names", (data) => {
+        animeListLower = [];
+        for(let i = 0; i < data.names.length; i++) animeListLower[i] = data.names[i].toLowerCase();
+    }).bindListener();
+
+    // Listener để cập nhật màu button khi có đáp án quiz
+    new Listener("quiz answer", (data) => {
+        data.answer && updateButtonColor(animeListLower.includes(data.answer.toLowerCase()));
+    }).bindListener();
+
   document.addEventListener("keydown", function(e) {
         if (e.key === "Tab") {
             e.preventDefault();
@@ -197,43 +246,7 @@ const setupDropD = () => {
   //    );
   //  }
   //});
-    // === Add Grammarly-style toggle button ===
-const $grammarlyButton = $(`
-  <span class="UP62D" style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 100;">
-    <button class="vkuMN Q_ghU" type="button" aria-label="Toggle EnterDropD"
-      style="
-        padding-left: 0px;
-        padding-right: 0px;
-        border-right-width: 0px;
-        border-left-width: 0px;
-        border-bottom-width: 0px;
-        border-top-width: 0px;
-        padding-top: 0px;
-        padding-bottom: 0px;
-        background-color: rgba(0,0,0,0);
-        width: 14px;
-        height: 14px;
-        margin-right: 30px;
-      ">
-      <div class="VNMHv knLsy BWwwG" style="width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;">
-        <div class="L704q">
-          <div data-purpose="animation-wrapper">
-            <div class="xfAhf" style="width: 10px; height: 10px; border-radius: 50%; background: rgb(204, 204, 204); transition: background 0.3s;"></div>
-          </div>
-        </div>
-      </div>
-    </button>
-  </span>
-`).appendTo("#qpAnswerInputContainer");
-
-
-
-    // Cập nhật màu nút theo trạng thái `active`
-    const updateButtonColor = () => {
-        const color = active ? "rgb(1, 131, 116)" : "rgb(204, 204, 204)";
-        $grammarlyButton.find(".xfAhf").css("background", color);
-    };
-
+    
     // Toggle logic
     const toggleEnterDropD = () => {
         active = !active;
