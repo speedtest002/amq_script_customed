@@ -1766,6 +1766,7 @@ function applyStyles() {
         #answerStatsWindow {
             background-color: #42424255;
             box-shadow: 0 5px 15px #00000080;
+            border-radius: 10px;
         }
         #answerStatsWindow .modal-header {
             padding: 0;
