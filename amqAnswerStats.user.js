@@ -1764,12 +1764,13 @@ function applyStyles() {
 
         /* CUSTOM: Using custom header style */
         #answerStatsWindow {
-            box-shadow: 0 5px 15px #00000080;
+            background-color: #0000000f;
             border-radius: 10px;
         }
         #answerStatsWindow .modal-header {
             padding: 0;
             height: 32px;
+            background-color: #42424255;
             box-shadow: 0 5px 15px #00000080;
         }
         #answerStatsWindow .modal-header .tabContainer {
@@ -1779,6 +1780,7 @@ function applyStyles() {
         }
         #answerStatsWindow .modal-header .tabContainer .tab::before {
             box-shadow: none;
+            background-color: #42424255;
         }
         #answerStatsWindow .modal-header i.fa:hover {
             opacity: .7;
@@ -1786,6 +1788,7 @@ function applyStyles() {
         }
         #answerStatsWindow .tabContainer .tab:hover {
             opacity: .8;
+            background-color: #42424255;
         }
         .answerStatsRow {
             margin: 0 2px;
@@ -2036,6 +2039,7 @@ function applyStyles() {
             background-color: #353535;
         }
         #distributionWindow {
+            background-color: #42424255;
             box-shadow: 0 5px 15px #00000080;
         }
     `;
