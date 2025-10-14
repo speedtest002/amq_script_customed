@@ -67,6 +67,7 @@ function loadMyQuizzes() {
     return new Promise((resolve) => {
         const listener = new Listener("load builder quizzes", (data) => {
             listener.unbindListener();
+            console.log("Loaded all quiz ids", data);
             allQuizIds = data;
             resolve(data);
         });
@@ -141,7 +142,7 @@ function annSongIdToRow(annSongId){
 }
 
  //since I cant get annSongId from Song History so I have to do this
-function getAnnSongIdFromRow(annId, artistId, arrangerId, songName, number, type) {
+function getAnnSongIdFromRow(annId, artistId, songName, number, type) {
     const anime = getAnime(annId);
     console.log(anime);
     const songType = typeMap[type];
@@ -150,10 +151,10 @@ function getAnnSongIdFromRow(annId, artistId, arrangerId, songName, number, type
         songList = Array.from(Object.values(songList));
     }
     const song = songList.find(s =>
-        (
-            s.songEntry?.arrangerArtistId === arrangerId ||
-            s.songEntry?.arrangerSongGroupId === arrangerId
-        ) &&
+        //(
+        //    s.songEntry?.arrangerArtistId === arrangerId ||
+        //    s.songEntry?.arrangerSongGroupId === arrangerId
+        //) &&
         (
             s.songEntry?.songArtistId === artistId ||
             s.songEntry?.songGroupId === artistId
@@ -296,10 +297,8 @@ function createListWindow() {
         container: 'body',
         animation: false,
     })
-    .one('focus', async function() {
+    .on('focus', async function() {
         const $this = $(this);
-
-        // Lưu giá trị đang chọn để giữ khi reload
         const currentVal = $this.val();
 
         // Hiển thị loading tạm thời
@@ -308,7 +307,6 @@ function createListWindow() {
         try {
             //
             const privateQuizzes = allQuizIds.quizzes.filter(q => q.public === 0);
-
             $this.empty();
 
             if (privateQuizzes.length === 0) {
@@ -327,8 +325,7 @@ function createListWindow() {
                 });
             }
 
-            // Option tạo mới
-            $this.append('<option value="__createNew__">+ create new quiz...</option>');
+            //$this.append('<option value="__createNew__">+ create new quiz...</option>');
 
             $this.prop('disabled', false);
         } catch (err) {
@@ -340,15 +337,15 @@ function createListWindow() {
     .change(function() {
         const selectedQuizId = $(this).val();
         if (!selectedQuizId) return;
-        if (selectedQuizId === "__createNew__") {
-            messageDisplayer.displayInput(
-                            `Set quiz name`,
-                            "name",
-                            "Ok",
-                            "Cancal",
-                            (quizName) => { saveQuiz(quizName = quizName) } )
-            return;
-        }
+        //if (selectedQuizId === "__createNew__") {
+        //    messageDisplayer.displayInput(
+        //                    `Set quiz name`,
+        //                    "name",
+        //                    "Ok",
+        //                    "Cancal",
+        //                    (quizName) => { saveQuiz(quizName = quizName) } )
+        //    return;
+        //}
         (async () => {
             createNewTable();
             currentQuizId = selectedQuizId;
@@ -403,6 +400,21 @@ function createListWindow() {
       .popover({
         placement: 'bottom',
         content: 'Save quiz',
+        trigger: 'hover',
+        container: 'body',
+        animation: false,
+      })
+  )
+  .append(
+    $(
+      `<button class="btn btn-default" type="button"><i aria-hidden="true" class="fa fa-refresh"></i></button>`
+    )
+      .click(async () => {
+        await loadMyQuizzes();
+    })
+      .popover({
+        placement: 'bottom',
+        content: 'Reload all quizzes',
         trigger: 'hover',
         container: 'body',
         animation: false,
@@ -1024,11 +1036,11 @@ function updateInfo(song) {
         )}</p></div>`);
   let animeEnglishContainer = $(`<div id="animeEnglishContainer"><h5>
         <b>Anime English</b> <i class="fa fa-files-o clickAble" id="animeEnglishCopy"></i></h5><p>${escapeHtml(
-          song.mainNames.EN
+          song.mainNames.EN ?? song.mainNames.JA
         )}</p></div>`);
   let animeRomajiContainer = $(`<div id="animeRomajiContainer"><h5>
         <b>Anime Romaji</b> <i class="fa fa-files-o clickAble" id="animeRomajiCopy"></i></h5><p>${escapeHtml(
-          song.mainNames.JA
+          song.mainNames.JA ?? song.mainNames.JA
         )}</p></div>`);
   let altTitlesContainer = $(`<div id="altTitlesContainer"><h5>
         <b>All Working Titles</b></h5>${song.names
@@ -1481,7 +1493,7 @@ function songHistorySetup() {
             const thisAnnSongId = getAnnSongIdFromRow(
                 thisSongInfo.annId,
                 thisSongInfo.artistInfo.artistId ?? thisSongInfo.artistInfo.groupId,
-                thisSongInfo.arrangerInfo.artistId ?? thisSongInfo.arrangerInfo.groupId,
+                //thisSongInfo.arrangerInfo.artistId ?? thisSongInfo.arrangerInfo.groupId,
                 thisSongInfo.songName,
                 thisSongInfo.typeNumber,
                 thisSongInfo.type
@@ -1523,7 +1535,6 @@ async function setup() {
     createListWindow();
     songHistorySetup();
     await cacheLibrary();
-    await loadMyQuizzes();
     //await loadQuizSongs(15133);
 
     AMQ_addStyle(`
