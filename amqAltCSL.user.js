@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Alternative CSL
 // @namespace    https://github.com/kempanator
-// @version      0.2.0
+// @version      0.2.1
 // @description  CSL game but play on Community quiz (Community Song List)
 // @description  Thank to joske2865 for amqSongListUI shiHappy
 // @author       peashooter
@@ -1411,6 +1411,7 @@ function annSongIdToTable(annSongId) {
     currentQuizData.push(annSongId);
     console.log(song);
     addTableEntry(song);
+    updateShowNames();
 }
 
 function addTableEntry(newSong) {
@@ -1472,7 +1473,6 @@ function addTableEntry(newSong) {
   listWindowTable.append(newRow);
   updateCorrect(newRow);
   // Ensure numbers are correct (in case rows were manipulated elsewhere)
-
 };
 
 function updateCorrect(elem) {
