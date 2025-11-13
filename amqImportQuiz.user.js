@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         AMQ Import/Export custom quiz
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Import/export custom quiz in a click
-// @author       GithubCopilot
+// @author       peashooter
+// @downloadURL  https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqImportQuiz.user.js
+// @updateURL    https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqImportQuiz.user.js
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
 // @grant        none
