@@ -265,6 +265,15 @@ function setup() {
             template: '<div class="popover lastfive-popover" role="tooltip"><div class="arrow"></div><div class="popover-content"></div></div>'
         });
     }
+    
+    function roomNameText() {
+        if (!quiz.inQuiz) return "";
+        if (quiz.gameMode === "Ranked") {
+            const type = hostModal.$roomName.val();
+            return type;
+        }
+        return quiz.gameMode;
+    }
 
     let boxDiv = document.querySelector('div.qpSideContainer > div.row').parentElement;
     boxDiv.insertBefore(infoDiv, boxDiv.children[4]);
@@ -300,7 +309,7 @@ function setup() {
                 answer: currentAns.answer,
                 speed: currentAns.speed,
                 time: Date.now(),
-                mode: quiz.gameMode
+                mode: roomNameText()
             });
             // Keep only last 5
             if (lastFive.length > 5) {
