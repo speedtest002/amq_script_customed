@@ -111,6 +111,14 @@ popoverStyles.textContent = `
         max-width: none !important;
         white-space: nowrap !important;
     }
+    .lastans-text {
+        display: inline-block;
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: bottom;
+    }
 `;
 document.head.appendChild(popoverStyles);
 
@@ -308,7 +316,7 @@ function setup() {
             infoDiv.innerHTML += `<br>Answer rate: <b>${current.correctCount}/${current.count - current.spectatorCount}</b> (${(correctRatio * 100).toFixed(2)}%)`;
         }
         infoDiv.innerHTML += `<br>Last played: <b>${timeAgo(current.lastPlayed)}</b>`;
-        infoDiv.innerHTML += `<br>Last ans: <b>${current.lastAnswer}</b>`;
+        infoDiv.innerHTML += `<br>Last ans: <b class="lastans-text" title="${current.lastAnswer || ''}">${current.lastAnswer || 'N/A'}</b>`;
         
         const lastFiveData = renderLastFive(current.lastFive);
         infoDiv.innerHTML += lastFiveData.html;
