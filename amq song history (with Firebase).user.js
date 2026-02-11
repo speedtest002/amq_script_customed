@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         amq song history (with Firebase)
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.3
 // @description  Display Song history in the song info box, including the guess rate and time since last time the song played. Synced with Firebase.
 // @author       Minigamer42 (modified by peashooter)
 // @match        https://animemusicquiz.com/*
@@ -14,75 +14,69 @@
 // @require      https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js
 // ==/UserScript==
 
-// ============ FIREBASE CONFIG ============
-const FIREBASE_DATABASE_URL = "https://......firebasedatabase.app/";
-/*
-How to get Firebase Database URL:
-Step 1: Go to Firebase Console https://console.firebase.google.com/
-Step 2: Create a new Firebase project
-    Click on the "Create a new Firebase project"
-    Name it (e.g: amq-history).
-    Continue -> Turn off "Gemini..." and "Google Analytics" -> Create project.
-    Wait for it to load then click Continue.
-Step 3: Create Realtime Database
-    When you are in the Project Management Page:
-    On the left column -> Build -> Realtime Database
-    Click on Create Database -> chose localtion (closest to your location) -> Start in test mode
-Step 4: Get Database URL
-    After creating, you will see a link like this:
-    https://......firebasedatabase.app/
-*/
+/* ============ FIREBASE SETUP ============
 
-/* BEFORE YOU START:
-1. Disable amq song history (with localStorage) script.
-2. run this script in F12 console, it'll migrate your song history to Firebase:
-```
+HOW TO SET UP (one-time, in F12 Console):
+
+Step 1: Create Firebase Realtime Database
+    1. Go to https://console.firebase.google.com/
+    2. Create a new project (e.g: amq-history).
+       Continue -> Turn off "Gemini..." and "Google Analytics" -> Create project.
+    3. On the left column -> Build -> Realtime Database
+    4. Click "Create Database" -> choose location -> Start in test mode
+    5. Copy the database URL (e.g: https://amq-history-xxxxx-default-rtdb.firebasedatabase.app/)
+
+Step 2: Set Database Rules
+    1. In the Realtime Database page, click the "Rules" tab
+    2. Replace the rules with:
+        {
+          "rules": {
+            ".read": true,
+            ".write": true
+          }
+        }
+    3. Click "Publish"
+
+Step 3: Save the URL to localStorage (run this in F12 Console on AMQ page):
+
+    localStorage.setItem('amqFirebaseUrl', 'https://YOUR-DB-URL.firebasedatabase.app/');
+
+Step 4: Reload the page. Done!
+
+To change/update the URL later, just run Step 3 again with the new URL and reload.
+
+============================================
+
+MIGRATE FROM LOCALSTORAGE VERSION:
+If you used the old localStorage version before, run this in F12 Console to migrate:
+
 (async function() {
-    const FIREBASE_DATABASE_URL = "https://......firebasedatabase.app/"; // <-- Replace with your FIREBASE_DATABASE_URL
-    
-    // Get localStorage data
+    const url = localStorage.getItem('amqFirebaseUrl');
+    if (!url) { console.error('❌ Set amqFirebaseUrl first!'); return; }
+
     const localData = localStorage.getItem('songHistory');
-    if (!localData) {
-        console.error('❌ Not found songHistory in localStorage!');
-        return;
-    }
+    if (!localData) { console.error('❌ No songHistory in localStorage!'); return; }
 
     const songs = JSON.parse(localData);
     const songCount = Object.keys(songs).length;
-    console.log(`📊 Found ${songCount} songs in localStorage`);
+    console.log(`📊 Found ${songCount} songs`);
+    if (songCount === 0) { console.error('❌ Empty!'); return; }
 
-    if (songCount === 0) {
-        console.error('❌ localStorage is empty!');
-        return;
-    }
-
-    // Upload to Firebase using REST API (no SDK needed)
     console.log('🔄 Uploading to Firebase...');
-    
     try {
-        const response = await fetch(`${FIREBASE_DATABASE_URL}/songHistory.json`, {
+        const response = await fetch(`${url}/songHistory.json`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(songs)
         });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-        console.log('✅ Migration success!');
-        console.log(`📤 Pushed ${songCount} songs to Firebase`);
-    } catch (error) {
-        console.error('❌ Error:', error);
-    }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        console.log(`✅ Migrated ${songCount} songs to Firebase!`);
+    } catch (e) { console.error('❌ Error:', e); }
 })();
-```
-*/
 
-// =========================================
+============================================ */
 
-const version = "2.2";
+const version = "2.3";
 const infoDiv = document.createElement('div');
 infoDiv.className = "rowPlayCount";
 infoDiv.style.marginBottom = "10px";
@@ -122,21 +116,42 @@ popoverStyles.textContent = `
 `;
 document.head.appendChild(popoverStyles);
 
-// Firebase init
-firebase.initializeApp({ databaseURL: FIREBASE_DATABASE_URL });
-const database = firebase.database();
-let songHistory = {};
+const FIREBASE_DATABASE_URL = localStorage.getItem('amqFirebaseUrl');
+if (!FIREBASE_DATABASE_URL) {
+    console.error('[SongHistory] Firebase URL not set! Run in F12 Console:\n  localStorage.setItem(\'amqFirebaseUrl\', \'https://YOUR-DB-URL.firebasedatabase.app/\');\nthen reload the page.');
+} else {
+    firebase.initializeApp({ databaseURL: FIREBASE_DATABASE_URL });
+    const database = firebase.database();
+    console.log('[SongHistory] Firebase connected:', FIREBASE_DATABASE_URL);
 
-// Load all song history from Firebase on startup
-database.ref('songHistory').get().then(snapshot => {
-    if (snapshot.exists()) {
-        songHistory = snapshot.val();
-        console.log(`[SongHistory] Loaded ${Object.keys(songHistory).length} songs from Firebase`);
+    if (window.quiz) {
+        setup(database);
     }
-});
+}
 
-if (window.quiz) {
-    setup();
+function normalizeLastFive(rawLastFive) {
+    if (!Array.isArray(rawLastFive)) return [];
+    return rawLastFive.map(entry => {
+        if (entry && typeof entry === 'object' && 'correct' in entry) {
+            return entry;
+        }
+        if (typeof entry === 'boolean' || typeof entry === 'number') {
+            return {
+                correct: entry ? 1 : 0,
+                answer: 'N/A',
+                speed: '-',
+                time: 0,
+                mode: 'N/A'
+            };
+        }
+        return {
+            correct: 0,
+            answer: 'N/A',
+            speed: '-',
+            time: 0,
+            mode: 'N/A'
+        };
+    });
 }
 
 function getCurrentAns(players) {
@@ -149,7 +164,7 @@ function getCurrentAns(players) {
     };
 }
 
-function setup() {
+function setup(database) {
     function timeAgo(time) {
         if (time === 0) {
             return 'never';
@@ -209,6 +224,7 @@ function setup() {
     }
 
     function formatDate(timestamp) {
+        if (!timestamp) return 'N/A';
         const date = new Date(timestamp);
         const day = String(date.getDate()).padStart(2, '0');
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -220,13 +236,15 @@ function setup() {
     }
 
     function renderLastFive(lastFive = []) {
+        const normalized = normalizeLastFive(lastFive);
+
         // Build popover content with colored text
         let popoverContent = '';
-        if (lastFive.length > 0) {
-            for (let i = 0; i < lastFive.length; i++) {
-                const entry = lastFive[i];
+        if (normalized.length > 0) {
+            for (let i = 0; i < normalized.length; i++) {
+                const entry = normalized[i];
                 const colorClass = entry.correct ? 'lastfive-correct' : 'lastfive-incorrect';
-                popoverContent += `<div><span class="${colorClass}">${entry.answer || 'N/A'}</span> | ${entry.speed || '-'} | ${formatDate(entry.time)} | ${entry.mode}</div>`;
+                popoverContent += `<div><span class="${colorClass}">${entry.answer || 'N/A'}</span> | ${entry.speed || '-'} | ${formatDate(entry.time)} | ${entry.mode || 'N/A'}</div>`;
             }
         } else {
             popoverContent = '<div>No data</div>';
@@ -235,7 +253,7 @@ function setup() {
         // Build boxes
         let boxesHtml = '';
         for (let i = 0; i < 5; i++) {
-            const entry = lastFive[i];
+            const entry = normalized[i];
             if (entry) {
                 const color = entry.correct ? '#4CAF50' : '#f44336';
                 boxesHtml += `<span class="lastfive-box" style="background:${color};"></span>`;
@@ -248,12 +266,10 @@ function setup() {
     }
 
     function initPopover() {
-        // Hide and remove any existing popover
         $('.lastfive-container').popover('hide');
         $('.lastfive-container').popover('destroy');
-        // Remove leftover popover elements
         $('.popover').remove();
-        
+
         $('.lastfive-container').popover({
             content: function() {
                 return $(this).data('popover-content');
@@ -265,7 +281,7 @@ function setup() {
             template: '<div class="popover lastfive-popover" role="tooltip"><div class="arrow"></div><div class="popover-content"></div></div>'
         });
     }
-    
+
     function roomNameText() {
         if (!quiz.inQuiz) return "";
         if (quiz.gameMode === "Ranked") {
@@ -287,63 +303,65 @@ function setup() {
             return;
         }
 
-        const current = songHistory[webm] ?? {count: 0, correctCount: 0.0, spectatorCount: 0, lastPlayed: 0, lastFive: []};
-        current.count++;
         let isSpectator;
         let isCorrect;
         if (quiz.gameMode === "Nexus") {
             isCorrect = data.players[0]?.correct;
         } else {
             const playerData = data.players.find(player => player.gamePlayerId === quiz.ownGamePlayerId);
-            isSpectator = !playerData
+            isSpectator = !playerData;
             isCorrect = !!playerData?.correct;
         }
-        current.correctCount += isCorrect ? 1 : 0;
-        current.spectatorCount += isSpectator ? 1 : 0;
+        
+        const songRef = database.ref(`songHistory/${webm}`);
+        const snapshot = await songRef.once('value');
+        const current = snapshot.val() || { count: 0, correctCount: 0, spectatorCount: 0, lastPlayed: 0, lastFive: [] };
 
-        // Update lastFive (only if not spectator)
+        const oldLastPlayed = current.lastPlayed || 0;
+        const oldLastAnswer = current.lastAnswer || 'N/A';
+
+        const newCount = (current.count || 0) + 1;
+        const newCorrectCount = (current.correctCount || 0) + (isCorrect ? 1 : 0);
+        const newSpectatorCount = (current.spectatorCount || 0) + (isSpectator ? 1 : 0);
+
+        let newLastFive = normalizeLastFive(current.lastFive || []);
         if (!isSpectator) {
-            const lastFive = current.lastFive || [];
-            lastFive.push({
+            newLastFive.push({
                 correct: isCorrect ? 1 : 0,
                 answer: currentAns.answer,
                 speed: currentAns.speed,
                 time: Date.now(),
                 mode: roomNameText()
             });
-            // Keep only last 5
-            if (lastFive.length > 5) {
-                lastFive.shift();
+            if (newLastFive.length > 5) {
+                newLastFive.shift();
             }
-            current.lastFive = lastFive;
         }
 
-        let s = current.count > 1 ? "s" : "";
-        let correctRatio = current.correctCount / (current.count - current.spectatorCount);
-        infoDiv.innerHTML = `Played <b>${current.count} time${s} (${current.spectatorCount} in spec)</b>`;
-        if (current.count - current.spectatorCount) {
-            infoDiv.innerHTML += `<br>Answer rate: <b>${current.correctCount}/${current.count - current.spectatorCount}</b> (${(correctRatio * 100).toFixed(2)}%)`;
+        let s = newCount > 1 ? "s" : "";
+        let playedCount = newCount - newSpectatorCount;
+        infoDiv.innerHTML = `Played <b>${newCount} time${s} (${newSpectatorCount} in spec)</b>`;
+        if (playedCount > 0) {
+            let correctRatio = newCorrectCount / playedCount;
+            infoDiv.innerHTML += `<br>Answer rate: <b>${newCorrectCount}/${playedCount}</b> (${(correctRatio * 100).toFixed(2)}%)`;
         }
-        infoDiv.innerHTML += `<br>Last played: <b>${timeAgo(current.lastPlayed)}</b>`;
-        infoDiv.innerHTML += `<br>Last ans: <b class="lastans-text" title="${current.lastAnswer || ''}">${current.lastAnswer || 'N/A'}</b>`;
-        
-        const lastFiveData = renderLastFive(current.lastFive);
+        infoDiv.innerHTML += `<br>Last played: <b>${timeAgo(oldLastPlayed)}</b>`;
+        infoDiv.innerHTML += `<br>Last ans: <b class="lastans-text" title="${oldLastAnswer}">${oldLastAnswer}</b>`;
+
+        const lastFiveData = renderLastFive(newLastFive);
         infoDiv.innerHTML += lastFiveData.html;
-        
-        // Store popover content and initialize
+
         $('.lastfive-container').data('popover-content', lastFiveData.popoverContent);
         initPopover();
 
-        const updatedData = {
-            count: current.count,
-            correctCount: current.correctCount,
-            spectatorCount: current.spectatorCount,
+        songRef.set({
+            count: newCount,
+            correctCount: newCorrectCount,
+            spectatorCount: newSpectatorCount,
             lastPlayed: Date.now(),
             lastAnswer: currentAns.answer,
-            lastFive: current.lastFive || []
-        };
-        songHistory[webm] = updatedData;
-        database.ref(`songHistory/${webm}`).set(updatedData);
+            lastFive: newLastFive
+        });
     };
     l.bindListener();
 
@@ -352,37 +370,49 @@ function setup() {
      * @param start {string}
      */
     function displaySongHistory(limit = '10', start = '1') {
-        const songsPlayed = [];
+        const limitNum = parseInt(limit) || 10;
+        const startNum = Math.max(parseInt(start) || 1, 1);
 
-        for (const url in songHistory) {
-            songHistory[url]['url'] = url;
-            songsPlayed.push(songHistory[url]);
-        }
-        songsPlayed.sort((songA, songB) => songB.count - songA.count);
-        if (songsPlayed.count < limit) {
-            limit = `${songsPlayed.count}`;
-        }
-        if (start <= 0) {
-            start = '1';
-        }
+        const fetchCount = limitNum + startNum - 1;
+        database.ref('songHistory').orderByChild('count').limitToLast(fetchCount).once('value').then(snapshot => {
+            if (!snapshot.exists()) {
+                gameChat.systemMessage('No song history found.');
+                return;
+            }
 
-        gameChat.systemMessage(`List of songs played (${start} - ${parseInt(limit) + parseInt(start) - 1}):`);
-        for (let i = parseInt(start) - 1; i < parseInt(limit) + parseInt(start) - 1; i++) {
-            /** @type {{count: number, correctCount: number, spectatorCount: number, lastPlayed: number, url: string}} */
-            const song = songsPlayed[i];
-            gameChat.systemMessage(`<a href='https://files.catbox.moe/${song.url}.webm' target='_blank'>https://files.catbox.moe/${song.url}.webm</a>: ${song.count} (${song.correctCount}/${song.count - song.spectatorCount})`);
-        }
+            const songsPlayed = [];
+            snapshot.forEach(child => {
+                const song = child.val();
+                song.url = child.key;
+                songsPlayed.push(song);
+            });
+
+            songsPlayed.sort((a, b) => b.count - a.count);
+
+            const sliced = songsPlayed.slice(startNum - 1, startNum - 1 + limitNum);
+
+            if (sliced.length === 0) {
+                gameChat.systemMessage('No songs in that range.');
+                return;
+            }
+
+            gameChat.systemMessage(`List of songs played (${startNum} - ${startNum + sliced.length - 1}):`);
+            for (const song of sliced) {
+                const playedCount = song.count - (song.spectatorCount || 0);
+                gameChat.systemMessage(`<a href='https://files.catbox.moe/${song.url}.webm' target='_blank'>https://files.catbox.moe/${song.url}.webm</a>: ${song.count} (${song.correctCount || 0}/${playedCount})`);
+            }
+        });
     }
-
 
     AMQ_addScriptData({
         name: "Song History (Firebase)",
         author: "Minigamer42 (modified by peashooter)",
         version: version,
         link: "https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amq%20song%20history%20(with%20Firebase).user.js",
-        description: `<p>-- Firebase Cloud Mode --<p>
-    <p>Display the number of time a song played before and your guess rate on it in the song info window</p>
-            <p><a href="https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amq%20song%20history%20(with%20Firebase).user.js" target="_blank">Click this link</a> to update it.</p>`
+        description: `<p>-- Firebase Cloud Mode (v${version}) --<p>
+    <p>Display the number of times a song played before and your guess rate on it in the song info window.</p>
+    <p>Uses per-song queries for minimal bandwidth.</p>
+    <p><a href="https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amq%20song%20history%20(with%20Firebase).user.js" target="_blank">Click this link</a> to update it.</p>`
     });
 
     AMQ_addCommand({
