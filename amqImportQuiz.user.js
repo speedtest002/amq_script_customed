@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.2
 // @description  Import/export custom quiz in a click
-// @author       peashooter and removed error alerts.
+// @author       peashooter
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
 // @downloadURL  hhttps://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqImportQuiz.user.js
