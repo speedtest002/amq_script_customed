@@ -1,11 +1,9 @@
 // ==UserScript==
 // @name         AMQ Import/Export custom quiz
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Import/export custom quiz in a click
 // @author       peashooter
-// @downloadURL  https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqImportQuiz.user.js
-// @updateURL    https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqImportQuiz.user.js
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
 // @grant        none
@@ -44,7 +42,6 @@ function exportQuiz() {
                 URL.revokeObjectURL(url);
             } catch (err) {
                 console.error("Export failed:", err);
-                alert("Có lỗi khi export JSON!");
             }
         });
     }
@@ -77,7 +74,6 @@ function importQuiz() {
 
 
                     } catch (error) {
-                        alert('Lỗi: File JSON không hợp lệ!');
                         console.error('JSON parse error:', error);
                     }
                 };
@@ -85,7 +81,6 @@ function importQuiz() {
 
                 $(this).remove();
             });
-
             $fileInput.trigger('click');
         });
     }
