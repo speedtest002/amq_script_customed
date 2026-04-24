@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         amq song history (with Firebase)
 // @namespace    http://tampermonkey.net/
-// @version      2.3.1
+// @version      2.3.2
 // @description  Display Song history in the song info box, including the guess rate and time since last time the song played. Synced with Firebase.
 // @author       Minigamer42 (modified by peashooter)
 // @match        https://animemusicquiz.com/*
@@ -76,7 +76,7 @@ If you used the old localStorage version before, run this in F12 Console to migr
 
 ============================================ */
 
-const version = "2.3.1";
+const version = "2.3.2";
 const infoDiv = document.createElement('div');
 infoDiv.className = "rowPlayCount";
 infoDiv.style.marginBottom = "10px";
@@ -297,11 +297,15 @@ function setup(database) {
     const l = new Listener("answer results");
     l.callback = async (data) => {
         const currentAns = getCurrentAns(data.players);
-        const webm = data.songInfo.videoTargetMap?.catbox?.[720]?.slice(0, 6) || data.songInfo.videoTargetMap?.catbox?.[480]?.slice(0, 6);
-        if (!webm) {
+        const fullUrl = data.songInfo.videoTargetMap?.catbox?.[720] || data.songInfo.videoTargetMap?.catbox?.[480];
+        if (!fullUrl) {
             infoDiv.innerHTML = '';
             return;
         }
+        if (!fullUrl.endsWith('.webm') || fullUrl.endsWith('.mp3')) {
+            return;
+        }
+        const webm = fullUrl.slice(0, 6);
 
         let isSpectator;
         let isCorrect;
