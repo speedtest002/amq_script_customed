@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         amq song history (with Firebase)
 // @namespace    http://tampermonkey.net/
-// @version      2.3.2
+// @version      2.3.3
 // @description  Display Song history in the song info box, including the guess rate and time since last time the song played. Synced with Firebase.
 // @author       Minigamer42 (modified by peashooter)
 // @match        https://animemusicquiz.com/*
@@ -76,7 +76,7 @@ If you used the old localStorage version before, run this in F12 Console to migr
 
 ============================================ */
 
-const version = "2.3.2";
+const version = "2.3.3";
 const infoDiv = document.createElement('div');
 infoDiv.className = "rowPlayCount";
 infoDiv.style.marginBottom = "10px";
@@ -363,7 +363,7 @@ function setup(database) {
             correctCount: newCorrectCount,
             spectatorCount: newSpectatorCount,
             lastPlayed: Date.now(),
-            lastAnswer: currentAns.answer,
+            lastAnswer: !isSpectator ? currentAns.answer : (current.lastAnswer || null),
             lastFive: newLastFive
         });
     };
