@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Answer Stats (modded)
 // @namespace    https://github.com/kempanator
-// @version      0.51
+// @version      0.57
 // @description  Adds a window to display quiz answer stats
 // @author       kempanator
 // @match        https://*.animemusicquiz.com/*
@@ -139,7 +139,11 @@ function setup() {
         const currentPlayer = quizVideoController.getCurrentPlayer();
         const songNumber = parseInt(quiz.infoContainer.$currentSongCount.text());
         const maxSongNumber = Math.max(...Object.keys(songHistory).map(Number));
-        if (songNumber < maxSongNumber) songHistory = {}; //handle jam reset
+        if (songNumber < maxSongNumber) { //handle jam reset
+            songHistory = {};
+            playerInfo = {};
+            answerTimes = {};
+        }
         const correctPlayers = {}; //{id: answer speed, ...}
         const correctAnswerIdMap = {}; //{title: [], ...}
         const incorrectAnswerIdMap = {}; //{title: [], ...}
@@ -153,7 +157,7 @@ function setup() {
             altAnimeNames: info.altAnimeNames ?? [],
             altAnimeNamesAnswers: info.altAnimeNamesAnswers ?? [],
             animeType: info.animeType,
-            animeVintage: info.vintage,
+            animeVintage: convertVintage(info.vintage),
             animeTags: info.animeTags,
             animeGenre: info.animeGenre,
             songNumber: songNumber,
@@ -226,12 +230,13 @@ function setup() {
             if (!answerItem) {
                 continue;
             }
-            if (player.answer.trim() === "") {
+            const answerTrim = player.answer.trim();
+            if (answerTrim === "") {
                 noAnswerIdList.push(player.id);
                 answerItem.noAnswer = true;
                 continue;
             }
-            const answerLC = player.answer.toLowerCase();
+            const answerLC = answerTrim.toLowerCase();
             const correctKey = Object.keys(correctAnswerIdMap).find(k => k.toLowerCase() === answerLC);
             if (correctKey) {
                 correctAnswerIdMap[correctKey].push(player.id);
@@ -316,7 +321,8 @@ function setup() {
             else {
                 $("#asAnswerSpeedRow").empty().hide();
             }
-            if (data.players.length > 8 && Object.keys(correctPlayers).length <= 5) {
+            const correctLength = Object.keys(correctPlayers).length;
+            if (data.players.length > 8 && correctLength > 0 && correctLength <= 5) {
                 const $correctRow = $("#asCorrectPlayersRow").empty().show();
                 $correctRow.append(`<span><b>Correct Players: </b></span>`);
                 Object.keys(correctPlayers).forEach((id, index) => {
@@ -325,7 +331,7 @@ function setup() {
                             displayPlayerHistoryResults(id);
                             answerHistoryWindow.open();
                         }));
-                    if (index < Object.keys(correctPlayers).length - 1) $correctRow.append(", ");
+                    if (index < correctLength - 1) $correctRow.append(", ");
                 });
             }
             else {
@@ -982,9 +988,12 @@ function displayAverageSpeedResults() {
     answerSpeedWindow.panels[0].clear();
     let sortedIds = [];
     if (averageSpeedSort.mode === "score") {
-        sortedIds = averageSpeedSort.ascending
-            ? Object.values(Object.values(songHistory).slice(-1)[0].groupSlotMap).flat().reverse()
-            : Object.values(Object.values(songHistory).slice(-1)[0].groupSlotMap).flat();
+        const groupMap = Object.values(songHistory).at(-1)?.groupSlotMap;
+        if (groupMap) {
+            sortedIds = averageSpeedSort.ascending
+                ? Object.values(groupMap).flat().reverse()
+                : Object.values(groupMap).flat();
+        }
     }
     else if (averageSpeedSort.mode === "time") {
         sortedIds = averageSpeedSort.ascending
@@ -1072,13 +1081,14 @@ function displaySongHistoryResults(songNumber) {
             : Object.keys(song.answers).sort((a, b) => song.answers[b].text.localeCompare(song.answers[a].text));
     }
     const filter = (answer) => {
-        if (songHistoryFilter.type === "all") return true;
-        if (songHistoryFilter.type === "allCorrectAnswers" && answer.correct) return true;
-        if (songHistoryFilter.type === "allWrongAnswers" && !answer.correct) return true;
-        if (songHistoryFilter.type === "answer" && songHistoryFilter.answer.toLowerCase() === answer.text.toLowerCase()) return true;
-        if (songHistoryFilter.type === "noAnswers" && answer.noAnswer) return true;
-        if (songHistoryFilter.type === "uniqueValidWrongAnswers" && answer.uniqueAnswer) return true;
-        if (songHistoryFilter.type === "invalidAnswers" && answer.invalidAnswer) return true;
+        const type = songHistoryFilter.type;
+        if (type === "all") return true;
+        if (type === "allCorrectAnswers" && answer.correct) return true;
+        if (type === "allWrongAnswers" && !answer.correct) return true;
+        if (type === "answer" && songHistoryFilter.answer.toLowerCase() === answer.text.toLowerCase()) return true;
+        if (type === "noAnswers" && answer.noAnswer) return true;
+        if (type === "uniqueValidWrongAnswers" && answer.uniqueAnswer) return true;
+        if (type === "invalidAnswers" && answer.invalidAnswer) return true;
         return false;
     }
     for (const id of sortedIds) {
@@ -1092,7 +1102,7 @@ function displaySongHistoryResults(songNumber) {
                     .append($("<td>", { class: "box", text: findBoxById(player.id, song.groupSlotMap), style: "cursor: pointer;" }))
                     .append($("<td>", { class: "score", text: answer.score }))
                     .append($("<td>", { class: "level", text: player.level }))
-                    .append($("<td>", { class: "name", text: player.name, style: "cursor: pointer;" })
+                    .append($("<td>", { class: "name", text: player.name, style: "cursor: pointer;", "data-player-id": id })
                         .prepend(`<i class="fa fa-id-card-o clickAble" aria-hidden="true"></i>`))
                     .append($("<td>", { class: "speed", text: answer.speed || "" }))
                     .append($("<td>", { class: "answer", text: answer.text, style: "cursor: pointer;" })
@@ -1108,20 +1118,20 @@ function displaySongHistoryResults(songNumber) {
         displaySongHistoryResults(answerHistorySettings.songNumber);
     });
     $tbody.on("click", "td", (event) => {
-        if (event.target.classList.contains("name")) {
-            const id = Object.values(playerInfo).find(p => p.name === event.target.innerText).id;
-            displayPlayerHistoryResults(id);
+        const td = event.currentTarget;
+        if (td.classList.contains("name")) {
+            displayPlayerHistoryResults(td.getAttribute("data-player-id"));
         }
-        else if (event.target.classList.contains("box")) {
-            selectAvatarGroup(parseInt(event.target.innerText));
+        else if (td.classList.contains("box")) {
+            selectAvatarGroup(parseInt(td.textContent, 10));
         }
-        else if (event.target.classList.contains("answer")) {
-            songHistoryFilter = { type: "answer", answer: event.target.innerText };
+        else if (td.classList.contains("answer")) {
+            songHistoryFilter = { type: "answer", answer: td.textContent };
             displaySongHistoryResults(answerHistorySettings.songNumber);
         }
     });
     $tbody.on("click", "i.fa-id-card-o", (event) => {
-        const name = event.target.parentElement.innerText;
+        const name = event.target.parentElement.textContent;
         playerProfileController.loadProfile(name, $("#answerHistoryWindow"), {}, () => { }, false, true);
     });
     $table.append($thead, $tbody);
@@ -1444,11 +1454,24 @@ function hostText(url) {
     return "?";
 }
 
+// input vintage text or amq object, return text
+function convertVintage(vintage) {
+    if (!vintage) return "";
+    if (typeof vintage === "string") return vintage;
+    if (typeof vintage === "object") {
+        if (vintage.key && vintage.data?.year) {
+            return localizationHandler.translate(vintage.key, vintage.data);
+        }
+    }
+    return "";
+}
+
 // input type and typeNumber, return shortened type
 function typeText(type, typeNumber) {
     if (type === 1) return "OP" + typeNumber;
     if (type === 2) return "ED" + typeNumber;
     if (type === 3) return "IN";
+    return "";
 };
 
 // get type of room, if ranked specify region
@@ -1619,19 +1642,23 @@ function saveResults() {
     const fileName = answerHistorySettings.roomType === "Ranked"
         ? `${dateFormatted} ${answerHistorySettings.roomName} Answer History.json`
         : `${dateFormatted} ${timeFormatted} ${answerHistorySettings.roomType} Answer History.json`;
-    const data = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+    const json = JSON.stringify({
         date: dateFormatted,
         roomType: answerHistorySettings.roomType,
         roomName: answerHistorySettings.roomName,
         playerInfo: playerInfo,
         songHistory: songHistory
-    }));
-    const element = document.createElement("a");
-    element.setAttribute("href", data);
-    element.setAttribute("download", fileName);
-    document.body.appendChild(element);
-    element.click();
-    element.remove();
+    });
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 // load hotkey from local storage, input optional default values
