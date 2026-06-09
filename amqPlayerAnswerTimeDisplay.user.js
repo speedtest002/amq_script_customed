@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         AMQ Player Answer Time Display
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  Makes you able to see how quickly people answered
 // @author       peashooter
 // @match        https://animemusicquiz.com/*
 // @grant        none
-// @downloadURL  https://github.com/kempanator/amq-scripts/raw/main/amqPlayerAnswerTimeDisplay.user.js
-// @updateURL    https://github.com/kempanator/amq-scripts/raw/main/amqPlayerAnswerTimeDisplay.user.js
+// @downloadURL  https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqPlayerAnswerTimeDisplay.user.js
+// @updateURL    https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqPlayerAnswerTimeDisplay.user.js
 // @require      https://github.com/joske2865/AMQ-Scripts/raw/master/common/amqScriptInfo.js
 // @copyright    MIT license
 // ==/UserScript==
@@ -44,11 +44,22 @@ new Listener("Game Starting", (data) => {
 new Listener("Join Game", (data) => {
     if (data.quizState) {
         ignorePlayersRegular(data.quizState.players)
+        data.quizState.players.forEach(p => {
+            if (p.answerTimeing != null)
+                playerAnswerTimes[p.gamePlayerId] = Math.floor(p.answerTimeing * 1000)
+        })
     }
 }).bindListener()
 
-new Listener("Spectate Game", () => {
+new Listener("Spectate Game", (data) => {
     ignoredPlayerIds = []
+    if (data.quizState) {
+        ignorePlayersRegular(data.quizState.players)
+        data.quizState.players.forEach(p => {
+            if (p.answerTimeing != null)
+                playerAnswerTimes[p.gamePlayerId] = Math.floor(p.answerTimeing * 1000)
+        })
+    }
 }).bindListener()
 
 new Listener("player late join", () => {
@@ -130,11 +141,9 @@ new Listener("player answered", (data) => {
         data.answers.forEach((answer) => {
             const qp = quiz.players[answer.gamePlayerId]
             if (!qp) return
-            let text = answer.answer
-            if (playerAnswerTimes[answer.gamePlayerId] !== undefined) {
-                text += " (" + playerAnswerTimes[answer.gamePlayerId] + "ms)"
-            }
-            qp.answer = text
+            const time = playerAnswerTimes[answer.gamePlayerId]
+            const text = answer.answer + (time !== undefined ? " (" + time + "ms)" : "")
+            qp.avatarSlot.answer = text
             qp.unknownAnswerNumber = playerRanks[answer.gamePlayerId]
             qp.toggleTeamAnswerSharing(false)
         })
@@ -156,7 +165,7 @@ AMQ_addScriptData({
     name: "Player Answer Time Display",
     author: "peashooter",
     version: GM_info.script.version,
-    link: "https://github.com/amq-script-project/AMQ-Scripts/raw/master/gameplay/amqPlayerAnswerTimeDisplay.user.js",
+    link: "https://github.com/speedtest002/amq_script_customed/raw/refs/heads/main/amqPlayerAnswerTimeDisplay.user.js",
     description: `
         <p>Makes you able to see how quickly people answered</p>
         <p>(# ms) will be appended to all players' answers in their answer boxes</p>
