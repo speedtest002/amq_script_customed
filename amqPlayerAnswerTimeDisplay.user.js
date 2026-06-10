@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Player Answer Time Display
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Makes you able to see how quickly people answered
 // @author       peashooter
 // @match        https://animemusicquiz.com/*
@@ -21,6 +21,7 @@ if (typeof Listener === "undefined") return
 
 let playerAnswerTimes = {}
 let ignoredPlayerIds = []
+let songGuessTime = 20 // default is 20s
 
 const ignorePlayersRegular = (players) => {
     ignoredPlayerIds = []
@@ -83,9 +84,19 @@ new Listener("player answered", (data) => {
             playerAnswerTimes[id] = Math.floor(item.answerTime * 1000)
             const player = quiz.players?.[id]
             if (player) {
-                player.answer = playerAnswerTimes[id] + "ms"
+                player.avatarSlot.answer = playerAnswerTimes[id] + "ms"
             }
         }
+    }
+}).bindListener()
+
+new Listener("play next song", (data) => {
+    songGuessTime = data.time
+    playerAnswerTimes = {}
+    if (quiz?.players) {
+        Object.values(quiz.players).forEach(qp => {
+            qp.unknownAnswerNumber = undefined
+        })
     }
 }).bindListener()
 
@@ -101,10 +112,17 @@ new Listener("player answered", (data) => {
         }
 
         const timedPlayers = data.players
-            .filter(p => p.answerTimeing != null)
+            .filter(p => p.answerTimeing != null && p.answerTimeing !== songGuessTime)
             .sort((a, b) => {
                 if (a.correct !== b.correct) return a.correct ? -1 : 1
                 return a.answerTimeing - b.answerTimeing
+            })
+
+        data.players
+            .filter(p => p.answerTimeing != null && p.answerTimeing === songGuessTime)
+            .forEach(player => {
+                const qp = quiz.players[player.gamePlayerId]
+                if (qp) qp.avatarSlot.answer = qp.answer.replace(/\s*\(\d+ms\)$/, '')
             })
 
         let rank = 0
@@ -116,7 +134,12 @@ new Listener("player answered", (data) => {
             prevTime = time
             prevCorrect = player.correct
             const qp = quiz.players[player.gamePlayerId]
-            if (qp) qp.avatarSlot.setResultAnswerNumber(rank, player.correct)
+            if (!qp) return
+
+            qp.avatarSlot.setResultAnswerNumber(rank, player.correct)
+
+            const serverMs = Math.floor(time * 1000)
+            qp.avatarSlot.answer = qp.answer.replace(/\s*\(\d+ms\)$/, '') + " (" + serverMs + "ms)"
         })
 
         playerAnswerTimes = {}
