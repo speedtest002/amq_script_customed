@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         AMQ Player Answer Time Display
+// @name         AMQ Player Answer Time Display - Speed edition
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.2.1
 // @description  Makes you able to see how quickly people answered
 // @author       peashooter
 // @match        https://animemusicquiz.com/*
@@ -80,8 +80,8 @@ new Listener("nexus map rejoin", () => {
 new Listener("player answered", (data) => {
     for (const item of data) {
         for (const id of item.gamePlayerIds) {
-            if (ignoredPlayerIds.includes(id)) continue
             playerAnswerTimes[id] = Math.floor(item.answerTime * 1000)
+            if (ignoredPlayerIds.includes(id)) continue
             const player = quiz.players?.[id]
             if (player) {
                 player.avatarSlot.answer = playerAnswerTimes[id] + "ms"
