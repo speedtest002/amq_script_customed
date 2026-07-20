@@ -51,7 +51,8 @@ function _createQuiz(annSongIds, quizName, guessTime, extraGuessTime, samplePoin
             samplePoint: { samplePoint: samplePoint },
             playBackSpeed: { playBackSpeed: playBackSpeed },
             blocks: [],
-            duplicates: true
+            duplicates: true,
+			guessModes: { song: true, blurVideo: false, tinyVideo: false }
             }
         ]
         };
