@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         amq song history (with Firebase)
 // @namespace    http://tampermonkey.net/
-// @version      2.3.3
+// @version      2.4
 // @description  Display Song history in the song info box, including the guess rate and time since last time the song played. Synced with Firebase.
 // @author       Minigamer42 (modified by peashooter)
 // @match        https://animemusicquiz.com/*
@@ -113,8 +113,121 @@ popoverStyles.textContent = `
         white-space: nowrap;
         vertical-align: bottom;
     }
+    #sh_SettingsRoot span,
+    #sh_SettingsRoot .customCheckbox,
+    #sh_SettingsRoot select {
+        vertical-align: middle;
+    }
+    #sh_SettingsRoot select {
+        display: inline-block;
+        width: auto;
+    }
 `;
 document.head.appendChild(popoverStyles);
+
+// ============ DISPLAY SETTINGS (injected into #settingModal) ============
+const SH_SETTINGS_KEY = 'amqSongHistory_displaySettings';
+const SH_DEFAULT_SETTINGS = {
+    showPlayedCount: true,
+    showAnswerRate: true,
+    showLastPlayed: true,
+    showLastAns: true,
+    lastAnsStyle: 'beginning',
+    showLastFive: true
+};
+
+function shLoadSettings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(SH_SETTINGS_KEY));
+        return { ...SH_DEFAULT_SETTINGS, ...saved };
+    } catch {
+        return { ...SH_DEFAULT_SETTINGS };
+    }
+}
+
+function shSaveSettings(settings) {
+    localStorage.setItem(SH_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function shToggleSetting(key) {
+    const settings = shLoadSettings();
+    settings[key] = !settings[key];
+    shSaveSettings(settings);
+}
+
+function shSetLastAnsStyle(style) {
+    const settings = shLoadSettings();
+    settings.lastAnsStyle = style;
+    shSaveSettings(settings);
+}
+
+function shSmartTruncate(text, headLen, tailLen) {
+    if (!text) return 'N/A';
+    headLen = headLen || 20;
+    tailLen = tailLen || 15;
+    const maxLen = headLen + tailLen + 3;
+    if (text.length <= maxLen) return text;
+    return text.slice(0, headLen) + '...' + text.slice(-tailLen);
+}
+
+function shInjectSettings() {
+    if (document.getElementById('sh_SettingsRoot')) return;
+    const $container = $('#settingsGraphicContainer');
+    if (!$container.length) {
+        setTimeout(shInjectSettings, 500);
+        return;
+    }
+    const settings = shLoadSettings();
+    $container.append(
+        '<div id="sh_SettingsRoot" class="row" style="padding-top: 10px">' +
+            '<div class="col-xs-12">' +
+                '<div style="text-align: center; margin-bottom: 8px;"><label>Song History Display</label></div>' +
+                '<div class="row" style="margin-bottom: 5px;">' +
+                    '<div class="col-xs-6"><span>Played </span>' +
+                        '<div class="customCheckbox" style="display:inline-block;vertical-align:middle">' +
+                            '<input type="checkbox" id="sh_showPlayedCount">' +
+                            '<label for="sh_showPlayedCount"><i class="fa fa-check"></i></label></div></div>' +
+                    '<div class="col-xs-6"><span>Answer rate </span>' +
+                        '<div class="customCheckbox" style="display:inline-block;vertical-align:middle">' +
+                            '<input type="checkbox" id="sh_showAnswerRate">' +
+                            '<label for="sh_showAnswerRate"><i class="fa fa-check"></i></label></div></div>' +
+                '</div>' +
+                '<div class="row" style="margin-bottom: 5px;">' +
+                    '<div class="col-xs-6"><span>Last played </span>' +
+                        '<div class="customCheckbox" style="display:inline-block;vertical-align:middle">' +
+                            '<input type="checkbox" id="sh_showLastPlayed">' +
+                            '<label for="sh_showLastPlayed"><i class="fa fa-check"></i></label></div></div>' +
+                    '<div class="col-xs-6"><span>Last five </span>' +
+                        '<div class="customCheckbox" style="display:inline-block;vertical-align:middle">' +
+                            '<input type="checkbox" id="sh_showLastFive">' +
+                            '<label for="sh_showLastFive"><i class="fa fa-check"></i></label></div></div>' +
+                '</div>' +
+                '<div class="row">' +
+                    '<div class="col-xs-6">' +
+                        '<span>Last answer </span>' +
+                        '<div class="customCheckbox" style="display:inline-block;vertical-align:middle">' +
+                            '<input type="checkbox" id="sh_showLastAns">' +
+                            '<label for="sh_showLastAns"><i class="fa fa-check"></i></label></div></div>' +
+                    '<div class="col-xs-6">' +
+                        '<span>Style:</span>' +
+                        '<select id="sh_lastAnsStyle" style="display:inline-block;width:auto;vertical-align:middle;background:#333;color:#fff;border:1px solid #555;padding:2px 6px;border-radius:3px;height:auto;margin-left:5px;">' +
+                            '<option value="beginning">Beginning (Something very ...)</option>' +
+                            '<option value="smart">Beginning + End (Something ... long)</option>' +
+                        '</select></div>' +
+                '</div>' +
+            '</div>' +
+        '</div>'
+    );
+
+    // Bind events
+    $('#sh_showPlayedCount').prop('checked', settings.showPlayedCount).on('change', () => shToggleSetting('showPlayedCount'));
+    $('#sh_showAnswerRate').prop('checked', settings.showAnswerRate).on('change', () => shToggleSetting('showAnswerRate'));
+    $('#sh_showLastPlayed').prop('checked', settings.showLastPlayed).on('change', () => shToggleSetting('showLastPlayed'));
+    $('#sh_showLastAns').prop('checked', settings.showLastAns).on('change', () => shToggleSetting('showLastAns'));
+    $('#sh_showLastFive').prop('checked', settings.showLastFive).on('change', () => shToggleSetting('showLastFive'));
+    $('#sh_lastAnsStyle').val(settings.lastAnsStyle).on('change', function () { shSetLastAnsStyle(this.value); });
+}
+shInjectSettings();
 
 const FIREBASE_DATABASE_URL = localStorage.getItem('amqFirebaseUrl');
 if (!FIREBASE_DATABASE_URL) {
@@ -262,7 +375,7 @@ function setup(database) {
             }
         }
 
-        return { html: `<br>Last five: <span class="lastfive-container">${boxesHtml}</span>`, popoverContent };
+        return { html: `Last five: <span class="lastfive-container">${boxesHtml}</span>`, popoverContent };
     }
 
     function initPopover() {
@@ -322,13 +435,13 @@ function setup(database) {
         const current = snapshot.val() || { count: 0, correctCount: 0, spectatorCount: 0, lastPlayed: 0, lastFive: [] };
 
         const oldLastPlayed = current.lastPlayed || 0;
-        const oldLastAnswer = current.lastAnswer || 'N/A';
 
         const newCount = (current.count || 0) + 1;
         const newCorrectCount = (current.correctCount || 0) + (isCorrect ? 1 : 0);
         const newSpectatorCount = (current.spectatorCount || 0) + (isSpectator ? 1 : 0);
 
         let newLastFive = normalizeLastFive(current.lastFive || []);
+        const oldLastAnswer = newLastFive.length > 0 ? newLastFive[newLastFive.length - 1].answer : 'N/A';
         if (!isSpectator) {
             newLastFive.push({
                 correct: isCorrect ? 1 : 0,
@@ -344,16 +457,31 @@ function setup(database) {
 
         let s = newCount > 1 ? "s" : "";
         let playedCount = newCount - newSpectatorCount;
-        infoDiv.innerHTML = `Played <b>${newCount} time${s} (${newSpectatorCount} in spec)</b>`;
-        if (playedCount > 0) {
-            let correctRatio = newCorrectCount / playedCount;
-            infoDiv.innerHTML += `<br>Answer rate: <b>${newCorrectCount}/${playedCount}</b> (${(correctRatio * 100).toFixed(2)}%)`;
+        const disp = shLoadSettings();
+        let _html = '';
+        function addLine(content) { if (_html) _html += '<br>'; _html += content; }
+
+        if (disp.showPlayedCount) {
+            addLine(`Played <b>${newCount} time${s} (${newSpectatorCount} in spec)</b>`);
         }
-        infoDiv.innerHTML += `<br>Last played: <b>${timeAgo(oldLastPlayed)}</b>`;
-        infoDiv.innerHTML += `<br>Last ans: <b class="lastans-text" title="${oldLastAnswer}">${oldLastAnswer}</b>`;
+        if (disp.showAnswerRate && playedCount > 0) {
+            let correctRatio = newCorrectCount / playedCount;
+            addLine(`Answer rate: <b>${newCorrectCount}/${playedCount}</b> (${(correctRatio * 100).toFixed(2)}%)`);
+        }
+        if (disp.showLastPlayed) {
+            addLine(`Last played: <b>${timeAgo(oldLastPlayed)}</b>`);
+        }
+        if (disp.showLastAns) {
+            const ansText = disp.lastAnsStyle === 'smart' ? shSmartTruncate(oldLastAnswer) : oldLastAnswer;
+            addLine(`Last ans: <b class="lastans-text" title="${oldLastAnswer}">${ansText}</b>`);
+        }
 
         const lastFiveData = renderLastFive(newLastFive);
-        infoDiv.innerHTML += lastFiveData.html;
+        if (disp.showLastFive) {
+            addLine(lastFiveData.html);
+        }
+
+        infoDiv.innerHTML = _html;
 
         $('.lastfive-container').data('popover-content', lastFiveData.popoverContent);
         initPopover();
@@ -363,7 +491,6 @@ function setup(database) {
             correctCount: newCorrectCount,
             spectatorCount: newSpectatorCount,
             lastPlayed: Date.now(),
-            lastAnswer: !isSpectator ? currentAns.answer : (current.lastAnswer || null),
             lastFive: newLastFive
         });
     };
